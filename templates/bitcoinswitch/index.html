@@ -1,0 +1,461 @@
+{% extends "base.html" %} {% from "macros.jinja" import window_vars with context
+%} {% block page %}
+<div class="row q-col-gutter-md">
+  <div class="col-12 col-md-7 q-gutter-y-md">
+    <q-card>
+      <q-card-section>
+        <q-btn unelevated color="primary" @click="formDialog.show = true"
+          >New Bitcoinswitch
+        </q-btn>
+      </q-card-section>
+    </q-card>
+
+    <q-card>
+      <q-card-section>
+        <div class="row items-center no-wrap q-mb-md">
+          <div class="col">
+            <h5 class="text-subtitle1 q-my-none">Bitcoin Switches</h5>
+          </div>
+
+          <div class="col-auto">
+            <q-input
+              borderless
+              dense
+              debounce="300"
+              v-model="filter"
+              placeholder="Search"
+            >
+              <template v-slot:append>
+                <q-icon name="search"></q-icon>
+              </template>
+            </q-input>
+            <q-btn flat color="grey" @click="exportCSV">Export to CSV</q-btn>
+          </div>
+        </div>
+        <q-table
+          flat
+          dense
+          :rows="bitcoinswitches"
+          row-key="id"
+          :columns="bitcoinswitchTable.columns"
+          v-model:pagination="bitcoinswitchTable.pagination"
+        >
+          <template v-slot:header="props">
+            <q-tr :props="props">
+              <q-th style="width: 5%"></q-th>
+              <q-th style="width: 5%"></q-th>
+              <q-th style="width: 5%"></q-th>
+              <q-th style="width: 5%"></q-th>
+
+              <q-th
+                v-for="col in props.cols"
+                :key="col.name"
+                :props="props"
+                auto-width
+              >
+                <div v-text="col.label"></div>
+              </q-th>
+            </q-tr>
+          </template>
+
+          <template v-slot:body="props">
+            <q-tr :props="props">
+              <q-td>
+                <q-btn
+                  flat
+                  dense
+                  size="xs"
+                  @click="openUpdateBitcoinswitch(props.row.id)"
+                  icon="edit"
+                  color="blue"
+                >
+                  <q-tooltip>Edit Bitcoinswitch</q-tooltip>
+                </q-btn>
+              </q-td>
+              <q-td>
+                <q-btn
+                  flat
+                  dense
+                  size="xs"
+                  @click="deleteBitcoinswitch(props.row.id)"
+                  icon="cancel"
+                  color="pink"
+                >
+                  <q-tooltip>Delete Bitcoinswitch</q-tooltip>
+                </q-btn>
+              </q-td>
+              <q-td>
+                <q-btn
+                  flat
+                  dense
+                  size="xs"
+                  @click="openBitcoinswitchSettings(props.row.id)"
+                  icon="perm_data_setting"
+                  color="primary"
+                >
+                  <q-tooltip>Bitcoinswitch Settings</q-tooltip>
+                </q-btn>
+              </q-td>
+              <q-td>
+                <q-btn
+                  :disable="protocol == 'http:'"
+                  flat
+                  unelevated
+                  dense
+                  size="xs"
+                  icon="visibility"
+                  @click="openQrCodeDialog(props.row.id)"
+                  ><q-tooltip v-if="protocol == 'http:'">
+                    LNURLs only work over HTTPS </q-tooltip
+                  ><q-tooltip v-else> view LNURLS </q-tooltip></q-btn
+                >
+              </q-td>
+              <q-td
+                v-for="col in props.cols"
+                :key="col.name"
+                :props="props"
+                auto-width
+              >
+                <div v-if="col.name == 'id'"></div>
+                <div v-else>
+                  <span v-text="col.value"></span>
+                  <div v-if="col.name === 'title' && hasTaprootAssets(props.row)">
+                    <q-badge color="purple" text-color="white" class="q-mt-xs">
+                      <q-icon name="currency_bitcoin" size="xs" class="q-mr-xs" />
+                      Accepts Assets
+                    </q-badge>
+                  </div>
+                </div>
+              </q-td>
+            </q-tr>
+          </template>
+        </q-table>
+      </q-card-section>
+    </q-card>
+  </div>
+
+  <div class="col-12 col-md-5 q-gutter-y-md">
+    <q-card>
+      <q-card-section>
+        <h6 class="text-subtitle1 q-my-none">
+          {{SITE_TITLE}} Bitcoinswitch Extension
+        </h6>
+      </q-card-section>
+      <q-separator></q-separator>
+      <q-card-section>
+        <p>
+          Turn on and off things with bitcoin!<br />
+          Bitcoin Switch Hardware:
+          <a
+            class="text-secondary"
+            href="https://github.com/lnbits/bitcoinSwitch"
+          >
+            https://github.com/lnbits/bitcoinSwitch</a
+          ><br />
+          <small>
+            Created by,
+            <a class="text-secondary" href="https://github.com/benarc"
+              >Ben Arc</a
+            >,
+            <a class="text-secondary" href="https://github.com/blackcoffeexbt"
+              >BC</a
+            >,
+            <a class="text-secondary" href="https://github.com/motorina0"
+              >Vlad Stan</a
+            >,
+            <a class="text-secondary" href="https://github.com/dni">dni</a>
+          </small>
+        </p>
+        <p class="text-warning">
+          WARNING: updating the switches amount, duration or pin will change the
+          QR code.
+        </p>
+      </q-card-section>
+    </q-card>
+  </div>
+
+  <q-dialog
+    v-model="settingsDialog.show"
+    deviceition="top"
+    @hide="closeFormDialog"
+  >
+    <q-card class="q-pa-lg q-pt-xl lnbits__dialog-card">
+      <div class="text-h6">Device string</div>
+      <q-btn
+        dense
+        outline
+        unelevated
+        color="primary"
+        size="md"
+        @click="copyText(wslocation, 'Link copied to clipboard!')"
+      >
+        <span v-text="wslocation"></span>
+        <q-tooltip> Click to copy URL </q-tooltip>
+      </q-btn>
+    </q-card>
+  </q-dialog>
+
+  <q-dialog v-model="formDialog.show" deviceition="top" @hide="closeFormDialog">
+    <q-card class="q-pa-lg q-pt-xl lnbits__dialog-card">
+      <q-form @submit="sendFormData" class="q-gutter-md">
+        <h5 v-html="formDialog.data.device" v-if="formDialog.data.id"></h5>
+        <q-input
+          filled
+          dense
+          v-model.trim="formDialog.data.title"
+          type="text"
+          label="Title"
+        ></q-input>
+        <q-select
+          filled
+          dense
+          emit-value
+          v-model="formDialog.data.wallet"
+          :options="g.user.walletOptions"
+          label="Wallet *"
+        ></q-select>
+        <q-select
+          filled
+          dense
+          v-model.trim="formDialog.data.currency"
+          type="text"
+          label="Fiat currency for device"
+          :options="currency"
+        ></q-select>
+        <q-input
+          filled
+          dense
+          v-model.trim="formDialog.data.password"
+          type="text"
+          label="Password (optional)"
+          tooltip="Password to protect the device, needs to be entered as comment in the LNURL"
+        ></q-input>
+        <q-checkbox
+          v-if="taprootAssetsAvailable"
+          v-model="formDialog.data.default_accepts_assets"
+          color="primary"
+          label="Accept Taproot Assets by default"
+          class="q-mt-sm"
+        >
+          <q-tooltip>New switches will accept Taproot Assets by default</q-tooltip>
+        </q-checkbox>
+        <q-btn
+          unelevated
+          class="q-mb-lg"
+          round
+          size="sm"
+          icon="add"
+          @click="addSwitch"
+          v-model="formDialog.data.switches"
+          color="primary"
+        ></q-btn>
+        <q-btn
+          unelevated
+          class="q-mb-lg"
+          round
+          size="sm"
+          icon="remove"
+          @click="removeSwitch"
+          v-model="formDialog.data.switches"
+          color="primary"
+        ></q-btn>
+        <div v-for="_switch in formDialog.data.switches">
+          <div class="row">
+            <div class="col">
+              <q-input
+                ref="setAmount"
+                filled
+                dense
+                v-model.trim="_switch.amount"
+                class="q-pb-md"
+                :label="'Amount (' + formDialog.data.currency + ') *'"
+              ></q-input>
+            </div>
+            <div class="col q-ml-md">
+              <q-input
+                filled
+                dense
+                v-model.trim="_switch.duration"
+                type="number"
+                label="duration (ms)"
+              ></q-input>
+            </div>
+            <div class="col q-ml-md">
+              <q-input
+                filled
+                dense
+                v-model.trim="_switch.pin"
+                type="number"
+                label="GPIO pin"
+              ></q-input>
+            </div>
+            <div class="col q-ml-md">
+              <q-input
+                filled
+                dense
+                v-model.trim="_switch.label"
+                type="text"
+                label="Label"
+              ></q-input>
+            </div>
+            <div class="col q-ml-md">
+              <q-checkbox
+                v-model="_switch.variable"
+                color="primary"
+                label="Variable"
+                size="xs"
+                dense
+                ><q-tooltip
+                  >Variable time (Amount * Duration)</q-tooltip
+                ></q-checkbox
+              >
+              <q-checkbox
+                v-model="_switch.comment"
+                color="primary"
+                label="Comment"
+                size="xs"
+                dense
+              >
+                <q-tooltip>Enable LNURLp comments with payments</q-tooltip>
+              </q-checkbox>
+            </div>
+          </div>
+          <!-- Taproot Assets Configuration -->
+          <div class="row q-mt-md" v-if="taprootAssetsAvailable">
+            <div class="col">
+              <q-checkbox
+                v-model="_switch.accepts_assets"
+                color="primary"
+                label="Accept Taproot Assets"
+                @update:model-value="val => { if (!val) _switch.accepted_asset_ids = [] }"
+              >
+                <q-tooltip>Allow payments with Taproot Assets</q-tooltip>
+              </q-checkbox>
+            </div>
+          </div>
+          <div class="row q-mt-sm" v-if="_switch.accepts_assets && taprootAssetsAvailable">
+            <div class="col">
+              <q-select
+                filled
+                dense
+                multiple
+                emit-value
+                map-options
+                v-model="_switch.accepted_asset_ids"
+                :options="availableAssets"
+                option-value="asset_id"
+                option-label="name"
+                label="Accepted Assets"
+                :loading="loadingAssets"
+              >
+                <template v-slot:option="scope">
+                  <q-item v-bind="scope.itemProps">
+                    <q-item-section>
+                      <q-item-label v-text="scope.opt.name"></q-item-label>
+                      <q-item-label caption v-text="scope.opt.asset_id.substring(0, 16) + '...'"></q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+                <template v-slot:selected-item="scope">
+                  <q-chip
+                    removable
+                    dense
+                    @remove="scope.removeAtIndex(scope.index)"
+                    :tabindex="scope.tabindex"
+                    color="primary"
+                    text-color="white"
+                  >
+                    <span v-text="scope.opt.name"></span>
+                  </q-chip>
+                </template>
+              </q-select>
+            </div>
+          </div>
+        </div>
+        <div class="row q-mt-lg">
+          <q-btn
+            v-if="formDialog.data.id"
+            unelevated
+            color="primary"
+            :disable=" formDialog.data.title == ''"
+            type="submit"
+            >Update Bitcoin Switch</q-btn
+          >
+          <q-btn
+            v-else
+            unelevated
+            color="primary"
+            :disable="formDialog.data.title == ''"
+            type="submit"
+            >Create Bitcoin Switch</q-btn
+          >
+          <q-btn @click="cancelFormDialog" flat color="grey" class="q-ml-auto"
+            >Cancel</q-btn
+          >
+        </div>
+      </q-form>
+    </q-card>
+  </q-dialog>
+
+  <q-dialog v-model="qrCodeDialog.show" position="top">
+    <q-card v-if="qrCodeDialog.data" class="q-pa-lg lnbits__dialog-card">
+      <lnbits-qrcode
+        :value="'lightning:' + lnurlValue"
+        class="rounded-borders"
+      ></lnbits-qrcode>
+      <br />
+      <q-btn
+        outline
+        color="grey"
+        @click="copyText(lnurlValue, 'LNURL copied to clipboard!')"
+        >Trigger Device</q-btn
+      >
+      <q-btn
+        outline
+        color="grey"
+        @click="copyText(lnurlValue, 'LNURL copied to clipboard!')"
+        >Copy LNURL</q-btn
+      >
+      <q-chip
+        v-if="websocketMessage == 'WebSocket NOT supported by your Browser!' || websocketMessage == 'Connection closed'"
+        clickable
+        color="red"
+        text-color="white"
+        icon="error"
+      >
+        <span v-text="wsMessage"></span>
+      </q-chip>
+      <q-chip v-else clickable color="green" text-color="white" icon="check">
+        <span v-text="wsMessage"></span>
+      </q-chip>
+      <!-- Show accepted assets for current switch -->
+      <div v-if="currentSwitch && currentSwitch.accepts_assets && currentSwitch.accepted_asset_ids && currentSwitch.accepted_asset_ids.length > 0" class="q-mt-md">
+        <div class="text-subtitle2 q-mb-sm">This switch accepts Taproot Assets:</div>
+        <div class="row q-gutter-sm">
+          <q-chip 
+            v-for="assetId in currentSwitch.accepted_asset_ids" 
+            :key="assetId"
+            color="purple" 
+            text-color="white"
+            icon="currency_bitcoin"
+          >
+            <span v-text="getAssetName(assetId)"></span>
+          </q-chip>
+        </div>
+      </div>
+      <div class="row q-mt-lg q-gutter-sm">
+        <q-btn
+          v-for="_switch in qrCodeDialog.data.switches"
+          outline
+          color="primary"
+          @click="lnurlValue = _switch.lnurl"
+          :label="'Switch pin:' + _switch.pin + ' (' + _switch.duration + ' ms)'"
+        ></q-btn>
+      </div>
+      <q-btn v-close-popup flat color="grey" class="q-ml-auto">Close</q-btn>
+    </q-card>
+  </q-dialog>
+</div>
+{% endblock %} {% block scripts %} {{ window_vars(user) }}
+<script src="{{ static_url_for('bitcoinswitch/static', 'js/index.js') }}"></script>
+{% endblock %}
