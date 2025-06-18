@@ -74,66 +74,32 @@ class TaprootIntegration:
         This creates an invoice that can be paid with either sats or the specified asset.
         """
         try:
-            # Dynamically import to avoid dependency issues
-            from ...taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
+            # Simply use the invoice service which now handles peer discovery
+            from ...taproot_assets.services.invoice_service import InvoiceService
+            from ...taproot_assets.models import TaprootInvoiceRequest
             
-            # Create a wallet instance
-            taproot_wallet = await TaprootAssetsFactory.create_wallet(
+            # Create the invoice request
+            request = TaprootInvoiceRequest(
+                asset_id=asset_id,
+                amount=amount,
+                description=description,
+                expiry=expiry,
+                peer_pubkey=peer_pubkey,  # Can be None - invoice service will find it
+                extra=extra
+            )
+            
+            # Let the invoice service handle everything including peer discovery
+            response = await InvoiceService.create_invoice(
+                data=request,
                 user_id=user_id,
                 wallet_id=wallet_id
             )
             
-            # Use the RFQ invoice creation method
-            # Only pass peer_pubkey if it's actually provided (not None)
-            invoice_params = {
-                "description": description,
-                "asset_id": asset_id,
-                "asset_amount": amount,
-                "expiry": expiry
-            }
-            if peer_pubkey is not None:
-                invoice_params["peer_pubkey"] = peer_pubkey
-                
-            invoice_result = await taproot_wallet.get_raw_node_invoice(**invoice_params)
-            
-            if not invoice_result or "invoice_result" not in invoice_result:
-                logger.error("Failed to create RFQ invoice: Invalid response")
-                return None
-            
-            # Extract payment details
-            payment_hash = invoice_result["invoice_result"]["r_hash"]
-            payment_request = invoice_result["invoice_result"]["payment_request"]
-            
-            # Store the invoice in the database
-            from ...taproot_assets.crud.invoices import create_invoice
-            from ...taproot_assets.tapd_settings import taproot_settings
-            from ...taproot_assets.db_utils import transaction
-            
-            # Get satoshi fee from settings
-            satoshi_amount = taproot_settings.default_sat_fee
-            
-            # Create invoice record
-            async with transaction() as conn:
-                invoice = await create_invoice(
-                    asset_id=asset_id,
-                    asset_amount=amount,
-                    satoshi_amount=satoshi_amount,
-                    payment_hash=payment_hash,
-                    payment_request=payment_request,
-                    user_id=user_id,
-                    wallet_id=wallet_id,
-                    description=description,
-                    expiry=expiry,
-                    extra=extra,
-                    conn=conn
-                )
-            
             return {
-                "payment_hash": payment_hash,
-                "payment_request": payment_request,
-                "checking_id": payment_hash,
-                "is_rfq": True,
-                "accepted_buy_quote": invoice_result.get("accepted_buy_quote", {})
+                "payment_hash": response.payment_hash,
+                "payment_request": response.payment_request,
+                "checking_id": response.checking_id,
+                "is_rfq": True
             }
             
         except ImportError as e:
