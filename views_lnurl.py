@@ -175,6 +175,7 @@ async def lnurl_callback(
                 "payload": bitcoinswitch_payment.payload
             },
             expiry=3600  # 1 hour expiry
+            # Don't pass peer_pubkey - let RFQ find any available peer
         )
         
         if taproot_result:

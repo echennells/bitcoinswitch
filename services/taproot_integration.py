@@ -84,13 +84,17 @@ class TaprootIntegration:
             )
             
             # Use the RFQ invoice creation method
-            invoice_result = await taproot_wallet.get_raw_node_invoice(
-                description=description,
-                asset_id=asset_id,
-                asset_amount=amount,
-                expiry=expiry,
-                peer_pubkey=peer_pubkey
-            )
+            # Only pass peer_pubkey if it's actually provided (not None)
+            invoice_params = {
+                "description": description,
+                "asset_id": asset_id,
+                "asset_amount": amount,
+                "expiry": expiry
+            }
+            if peer_pubkey is not None:
+                invoice_params["peer_pubkey"] = peer_pubkey
+                
+            invoice_result = await taproot_wallet.get_raw_node_invoice(**invoice_params)
             
             if not invoice_result or "invoice_result" not in invoice_result:
                 logger.error("Failed to create RFQ invoice: Invalid response")
