@@ -59,6 +59,87 @@ class TaprootIntegration:
             return None
     
     @staticmethod
+    async def create_rfq_invoice(
+        asset_id: str,
+        amount: int,
+        description: str,
+        wallet_id: str,
+        user_id: str,
+        extra: Dict[str, Any],
+        peer_pubkey: Optional[str] = None,
+        expiry: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a Taproot Asset invoice using the RFQ (Request for Quote) process.
+        This creates an invoice that can be paid with either sats or the specified asset.
+        """
+        try:
+            # Dynamically import to avoid dependency issues
+            from ...taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
+            
+            # Create a wallet instance
+            taproot_wallet = await TaprootAssetsFactory.create_wallet(
+                user_id=user_id,
+                wallet_id=wallet_id
+            )
+            
+            # Use the RFQ invoice creation method
+            invoice_result = await taproot_wallet.get_raw_node_invoice(
+                description=description,
+                asset_id=asset_id,
+                asset_amount=amount,
+                expiry=expiry,
+                peer_pubkey=peer_pubkey
+            )
+            
+            if not invoice_result or "invoice_result" not in invoice_result:
+                logger.error("Failed to create RFQ invoice: Invalid response")
+                return None
+            
+            # Extract payment details
+            payment_hash = invoice_result["invoice_result"]["r_hash"]
+            payment_request = invoice_result["invoice_result"]["payment_request"]
+            
+            # Store the invoice in the database
+            from ...taproot_assets.crud.invoices import create_invoice
+            from ...taproot_assets.tapd_settings import taproot_settings
+            from ...taproot_assets.db_utils import transaction
+            
+            # Get satoshi fee from settings
+            satoshi_amount = taproot_settings.default_sat_fee
+            
+            # Create invoice record
+            async with transaction() as conn:
+                invoice = await create_invoice(
+                    asset_id=asset_id,
+                    asset_amount=amount,
+                    satoshi_amount=satoshi_amount,
+                    payment_hash=payment_hash,
+                    payment_request=payment_request,
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    description=description,
+                    expiry=expiry,
+                    extra=extra,
+                    conn=conn
+                )
+            
+            return {
+                "payment_hash": payment_hash,
+                "payment_request": payment_request,
+                "checking_id": payment_hash,
+                "is_rfq": True,
+                "accepted_buy_quote": invoice_result.get("accepted_buy_quote", {})
+            }
+            
+        except ImportError as e:
+            logger.error(f"Taproot Assets extension not available: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to create RFQ invoice: {e}")
+            return None
+    
+    @staticmethod
     async def get_available_assets(wallet_id: str) -> list[Dict[str, Any]]:
         """Get list of available Taproot Assets."""
         try:

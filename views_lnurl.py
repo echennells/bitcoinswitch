@@ -101,7 +101,8 @@ async def lnurl_params(
         resp["acceptedAssetIds"] = current_switch.accepted_asset_ids
         resp["assetMetadata"] = {
             "supportsRfq": True,
-            "message": "This switch accepts Taproot Assets"
+            "message": "This switch accepts Taproot Assets via RFQ - pay with either sats or assets",
+            "rfqEnabled": True
         }
     
     if comment:
@@ -153,8 +154,9 @@ async def lnurl_callback(
         if not wallet:
             return {"status": "ERROR", "reason": "Wallet not found"}
         
-        # Create Taproot Asset invoice
-        taproot_result = await TaprootIntegration.create_taproot_invoice(
+        # Create Taproot Asset invoice using RFQ process
+        # This creates an invoice that can be paid with either sats or the asset
+        taproot_result = await TaprootIntegration.create_rfq_invoice(
             asset_id=asset_id,
             amount=amount // 1000,  # Convert from millisats to sats
             description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
@@ -168,7 +170,8 @@ async def lnurl_callback(
                 "id": payment_id,
                 "switch_id": switch.id,
                 "payload": bitcoinswitch_payment.payload
-            }
+            },
+            expiry=3600  # 1 hour expiry
         )
         
         if taproot_result:
