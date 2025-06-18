@@ -12,7 +12,7 @@ class TaprootIntegration:
         """Check if Taproot Assets extension is installed and enabled."""
         try:
             extensions = await get_installed_extensions()
-            return any(ext.code == "taproot_assets" and ext.active for ext in extensions)
+            return any(ext.id == "taproot_assets" and ext.active for ext in extensions)
         except Exception as e:
             logger.warning(f"Failed to check taproot availability: {e}")
             return False

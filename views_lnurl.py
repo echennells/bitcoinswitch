@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, Request
 from lnbits.core.services import create_invoice
 from lnbits.core.crud import get_wallet
 from lnbits.utils.exchange_rates import fiat_amount_as_satoshis
+from loguru import logger
 
 from .crud import (
     create_bitcoinswitch_payment,
@@ -154,6 +155,8 @@ async def lnurl_callback(
         if not wallet:
             return {"status": "ERROR", "reason": "Wallet not found"}
         
+        logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={amount // 1000} sats")
+        
         # Create Taproot Asset invoice using RFQ process
         # This creates an invoice that can be paid with either sats or the asset
         taproot_result = await TaprootIntegration.create_rfq_invoice(
@@ -175,6 +178,7 @@ async def lnurl_callback(
         )
         
         if taproot_result:
+            logger.info(f"RFQ invoice created successfully: {taproot_result['payment_hash']}")
             # Update payment record
             bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
             bitcoinswitch_payment.is_taproot = True
@@ -193,6 +197,9 @@ async def lnurl_callback(
                 },
                 "routes": [],
             }
+        else:
+            logger.error("Failed to create RFQ invoice - taproot_result is None")
+            return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
     
     # Fall back to regular Lightning invoice
     payment = await create_invoice(
