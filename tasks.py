@@ -22,12 +22,18 @@ async def wait_for_paid_invoices():
 
 
 async def on_invoice_paid(payment: Payment) -> None:
-    # Handle both regular and taproot payments
-    if payment.extra.get("tag") not in ["Switch", "TaprootSwitch"]:
-        return
-
     # Check if this is a taproot payment
-    is_taproot = payment.extra.get("tag") == "TaprootSwitch"
+    is_taproot = payment.extra.get("is_taproot", False)
+    
+    # Handle both regular and taproot payments
+    if is_taproot:
+        # For taproot payments, check if it's a switch payment by id
+        if "id" not in payment.extra:
+            return
+    else:
+        # For regular payments, check the tag
+        if payment.extra.get("tag") != "Switch":
+            return
     
     bitcoinswitch_payment = await get_bitcoinswitch_payment(payment.extra["id"])
 
@@ -53,8 +59,10 @@ async def on_invoice_paid(payment: Payment) -> None:
     variable = payment.extra.get("variable")
     if variable is True:
         # For taproot payments, use asset amount if available
-        amount = (payment.extra.get("asset_amount") if is_taproot 
-                 else int(payment.extra["amount"]))
+        if is_taproot:
+            amount = payment.extra.get("asset_amount", int(payment.extra.get("amount", 0)))
+        else:
+            amount = int(payment.extra["amount"])
         payload = str(
             (int(payload) / int(bitcoinswitch_payment.sats)) * amount
         )

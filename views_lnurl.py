@@ -161,7 +161,6 @@ async def lnurl_callback(
             wallet_id=switch.wallet,
             user_id=wallet.user,
             extra={
-                "tag": "TaprootSwitch",  # Different tag for taproot payments
                 "pin": str(bitcoinswitch_payment.pin),
                 "amount": str(int(amount)),
                 "comment": comment,
