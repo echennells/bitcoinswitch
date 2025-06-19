@@ -25,10 +25,14 @@ async def on_invoice_paid(payment: Payment) -> None:
     # Check if this is a taproot payment
     is_taproot = payment.extra.get("is_taproot", False)
     
+    # Log payment details for debugging
+    logger.info(f"BitcoinSwitch received payment: hash={payment.payment_hash}, is_taproot={is_taproot}, extra={payment.extra}")
+    
     # Handle both regular and taproot payments
     if is_taproot:
         # For taproot payments, check if it's a switch payment by id
         if "id" not in payment.extra:
+            logger.info(f"Taproot payment missing 'id' in extra data: {payment.extra}")
             return
     else:
         # For regular payments, check the tag
