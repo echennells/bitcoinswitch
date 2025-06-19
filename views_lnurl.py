@@ -155,24 +155,51 @@ async def lnurl_callback(
         if not wallet:
             return {"status": "ERROR", "reason": "Wallet not found"}
         
-        logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={amount // 1000} sats")
+        # IMPORTANT FIX: Asset amount handling for proper RFQ invoices
+        # The 'amount' parameter from LNURL is in millisats and represents the switch's configured amount
+        # For asset invoices, we need to pass the ASSET UNITS, not the sat value
+        # 
+        # OLD BEHAVIOR (can be rolled back by uncommenting):
+        # - Used amount // 1000 which treated the switch amount as both asset units AND sats
+        # - This created "dual-purpose" invoices that accepted either X assets OR X sats
+        # 
+        # NEW BEHAVIOR:
+        # - Uses the switch's configured amount as ASSET UNITS
+        # - Creates proper asset-only invoices (with value=0 sats) that require RFQ conversion
+        # - Example: 10 bepsi switch creates invoice for 10 bepsi units (not 10 sats)
+        
+        # Extract the asset amount from the switch configuration
+        # This is the amount configured when creating the switch (e.g., 10 for "10 bepsi")
+        asset_amount = int(float(bitcoinswitch_payment.payload.split('-')[0]) if '-' in str(bitcoinswitch_payment.payload) else amount // 1000)
+        
+        # For simple switches, use the amount from the LNURL params
+        # The switch's 'amount' field represents asset units when dealing with assets
+        for s in switch.switches:
+            if s.pin == bitcoinswitch_payment.pin:
+                asset_amount = int(s.amount)
+                break
+        
+        logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
         
         # Create Taproot Asset invoice using RFQ process
-        # This creates an invoice that can be paid with either sats or the asset
+        # This creates an invoice for X units of the asset (with Lightning value=0)
+        # The invoice can be paid with sats through RFQ conversion at market rate
         taproot_result = await TaprootIntegration.create_rfq_invoice(
             asset_id=asset_id,
-            amount=amount // 1000,  # Convert from millisats to sats
+            amount=asset_amount,  # Asset units, not sats! (e.g., 10 bepsi, not 10 sats)
+            # OLD: amount=amount // 1000,  # This was wrong - treated as sats
             description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
             wallet_id=switch.wallet,
             user_id=wallet.user,
             extra={
                 "pin": str(bitcoinswitch_payment.pin),
-                "amount": str(int(amount)),
+                "amount": str(int(amount)),  # Keep original amount for payment tracking
                 "comment": comment,
                 "variable": variable,
                 "id": payment_id,
                 "switch_id": switch.id,
-                "payload": bitcoinswitch_payment.payload
+                "payload": bitcoinswitch_payment.payload,
+                "asset_amount": str(asset_amount)  # Store asset amount for reference
             },
             expiry=3600  # 1 hour expiry
             # Don't pass peer_pubkey - let RFQ find any available peer
@@ -186,7 +213,9 @@ async def lnurl_callback(
             bitcoinswitch_payment.asset_id = asset_id
             await update_bitcoinswitch_payment(bitcoinswitch_payment)
             
-            message = f"{int(amount / 1000)}sats worth of {asset_id} requested"
+            # Update message to show asset amount instead of sat amount
+            # OLD: message = f"{int(amount / 1000)}sats worth of {asset_id} requested"
+            message = f"{asset_amount} units of {asset_id} requested"
             if switch.password and switch.password != comment:
                 message = f"{message}, but password was incorrect! :("
             
