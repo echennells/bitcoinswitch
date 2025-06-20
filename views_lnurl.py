@@ -21,6 +21,16 @@ from .services.rate_service import RateService
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
 
+def is_asset_enabled_switch(switch) -> bool:
+    """Check if a switch is configured to accept taproot assets."""
+    return (
+        switch and
+        switch.accepts_assets and
+        switch.accepted_asset_ids and
+        len(switch.accepted_asset_ids) > 0
+    )
+
+
 @bitcoinswitch_lnurl_router.get(
     "{bitcoinswitch_id}",
     status_code=HTTPStatus.OK,
@@ -96,10 +106,7 @@ async def lnurl_params(
             current_switch = s
             break
     
-    if (current_switch and 
-        current_switch.accepts_assets and 
-        current_switch.accepted_asset_ids and 
-        await TaprootIntegration.is_taproot_available()):
+    if is_asset_enabled_switch(current_switch) and await TaprootIntegration.is_taproot_available():
         resp["acceptsAssets"] = True
         resp["acceptedAssetIds"] = current_switch.accepted_asset_ids
         resp["assetMetadata"] = {
@@ -138,7 +145,7 @@ async def lnurl_params(
                 resp["minSendable"] = sat_amount * 1000  # Convert to millisats
                 resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
                 
-                logger.info(f"Asset switch: {asset_amount} units = {sat_amount} sats at current RFQ rate")
+                logger.debug(f"Asset switch: {asset_amount} units = {sat_amount} sats at current RFQ rate")
             else:
                 # Fallback if rate fetch fails - use wide range
                 logger.warning(f"Could not fetch RFQ rate for asset {asset_id}, using wide range")
@@ -186,24 +193,18 @@ async def lnurl_callback(
             current_switch = s
             break
     
-    # IMPORTANT FIX: Check if this switch is configured for taproot assets
+    # Check if this switch is configured for taproot assets
     # If the switch accepts assets, ALWAYS create an asset invoice, regardless of callback parameters
-    # This prevents dual-mode invoices where users can pay with either sats or assets
-    if (current_switch and
-        current_switch.accepts_assets and 
-        current_switch.accepted_asset_ids and
-        len(current_switch.accepted_asset_ids) > 0 and
-        await TaprootIntegration.is_taproot_available()):
+    if is_asset_enabled_switch(current_switch) and await TaprootIntegration.is_taproot_available():
         
         # If no asset_id provided in callback, use the first accepted asset
         # This ensures asset-configured switches ONLY create asset invoices
         if not asset_id or asset_id not in current_switch.accepted_asset_ids:
             asset_id = current_switch.accepted_asset_ids[0]
-            logger.info(f"No valid asset_id in callback, using configured asset: {asset_id}")
+            logger.debug(f"No valid asset_id in callback, using configured asset: {asset_id}")
     
     # Check if we should create a Taproot Asset invoice
-    if (current_switch and
-        current_switch.accepts_assets and 
+    if (is_asset_enabled_switch(current_switch) and 
         asset_id and 
         asset_id in current_switch.accepted_asset_ids and
         await TaprootIntegration.is_taproot_available()):
@@ -252,27 +253,13 @@ async def lnurl_callback(
                 logger.warning(f"Could not verify current rate for asset {asset_id}")
                 # Continue anyway - let RFQ handle it
         
-        # IMPORTANT FIX: Asset amount handling for proper RFQ invoices
-        # The 'amount' parameter from LNURL is in millisats and represents the switch's configured amount
-        # For asset invoices, we need to pass the ASSET UNITS, not the sat value
-        # 
-        # OLD BEHAVIOR (can be rolled back by uncommenting):
-        # - Used amount // 1000 which treated the switch amount as both asset units AND sats
-        # - This created "dual-purpose" invoices that accepted either X assets OR X sats
-        # 
-        # NEW BEHAVIOR:
-        # - Uses the switch's configured amount as ASSET UNITS
-        # - Creates proper asset-only invoices (with value=0 sats) that require RFQ conversion
-        # - Example: 10 bepsi switch creates invoice for 10 bepsi units (not 10 sats)
-        
-        # MARKET MAKER: Use the asset amount that was quoted
-        # This ensures we create an invoice for the exact asset amount
-        # that corresponds to the sat amount we quoted
+        # Use the asset amount that was quoted (if available) to ensure consistency
+        # with the sat amount displayed in the LNURL response
         
         if bitcoinswitch_payment.asset_amount:
             # Use the quoted asset amount
             asset_amount = bitcoinswitch_payment.asset_amount
-            logger.info(f"Using quoted asset amount: {asset_amount}")
+            logger.debug(f"Using quoted asset amount: {asset_amount}")
         else:
             # Fallback to switch configuration
             for s in switch.switches:
@@ -291,8 +278,7 @@ async def lnurl_callback(
         # The invoice can be paid with sats through RFQ conversion at market rate
         taproot_result = await TaprootIntegration.create_rfq_invoice(
             asset_id=asset_id,
-            amount=asset_amount,  # Asset units, not sats! (e.g., 10 bepsi, not 10 sats)
-            # OLD: amount=amount // 1000,  # This was wrong - treated as sats
+            amount=asset_amount,  # Asset units, not sats
             description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
             wallet_id=switch.wallet,
             user_id=wallet.user,
@@ -318,8 +304,7 @@ async def lnurl_callback(
             bitcoinswitch_payment.asset_id = asset_id
             await update_bitcoinswitch_payment(bitcoinswitch_payment)
             
-            # Update message to show asset amount instead of sat amount
-            # OLD: message = f"{int(amount / 1000)}sats worth of {asset_id} requested"
+            # Show asset amount in success message
             message = f"{asset_amount} units of {asset_id} requested"
             if switch.password and switch.password != comment:
                 message = f"{message}, but password was incorrect! :("
@@ -336,13 +321,9 @@ async def lnurl_callback(
             logger.error("Failed to create RFQ invoice - taproot_result is None")
             return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
     
-    # IMPORTANT: Check if this switch is configured for assets
+    # Check if this switch is configured for assets
     # If it is, we should NEVER create a regular Lightning invoice
-    # This prevents the dual-mode behavior where switches accept both sats and assets
-    if (current_switch and 
-        current_switch.accepts_assets and 
-        current_switch.accepted_asset_ids and 
-        len(current_switch.accepted_asset_ids) > 0):
+    if is_asset_enabled_switch(current_switch):
         # This is an asset-configured switch but we're here because:
         # 1. Taproot integration is not available, OR
         # 2. No valid asset_id was provided

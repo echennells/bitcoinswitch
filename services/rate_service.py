@@ -35,7 +35,7 @@ class RateService:
         if cached:
             cached_at = cached.get("timestamp")
             if cached_at and datetime.now(timezone.utc) - cached_at < timedelta(seconds=RATE_REFRESH_SECONDS):
-                logger.info(f"Using cached rate for {asset_id[:8]}...: {cached['rate']} sats/unit")
+                logger.debug(f"Using cached rate for {asset_id[:8]}...: {cached['rate']} sats/unit")
                 return cached.get("rate")
         
         try:
@@ -71,7 +71,7 @@ class RateService:
             for asset in assets:
                 if asset.get("asset_id") == asset_id and asset.get("channel_info") and asset["channel_info"].get("peer_pubkey"):
                     peer_pubkey = asset["channel_info"]["peer_pubkey"]
-                    logger.info(f"Found peer for rate quote: {peer_pubkey[:16]}...")
+                    logger.debug(f"Found peer for rate quote: {peer_pubkey[:16]}...")
                     break
             
             if not peer_pubkey:
@@ -93,7 +93,7 @@ class RateService:
             )
             
             # Get quote
-            logger.info(f"Fetching RFQ rate for asset {asset_id[:8]}...")
+            logger.debug(f"Fetching RFQ rate for asset {asset_id[:8]}...")
             buy_order_response = await rfq_stub.AddAssetBuyOrder(buy_order_request, timeout=5)
             
             if buy_order_response.accepted_quote:
@@ -111,7 +111,7 @@ class RateService:
                 # Convert from millisats to sats per unit
                 rate = rate_millisats_per_unit / 1000
                 
-                logger.info(f"RFQ rate for {asset_amount} units of {asset_id[:8]}...: total={total_millisats} millisats, per-unit={rate} sats/unit (coefficient={rate_info.coefficient}, scale={rate_info.scale})")
+                logger.debug(f"RFQ rate for {asset_amount} units of {asset_id[:8]}...: total={total_millisats} millisats, per-unit={rate} sats/unit")
                 
                 # Cache the rate
                 rate_cache[asset_id] = {
@@ -152,7 +152,7 @@ class RateService:
         deviation = abs(current_rate - quoted_rate) / quoted_rate
         within_tolerance = deviation <= tolerance
         
-        logger.info(
+        logger.debug(
             f"Rate check: quoted={quoted_rate}, current={current_rate}, "
             f"deviation={deviation:.2%}, tolerance={tolerance:.2%}, "
             f"within_tolerance={within_tolerance}"
@@ -181,7 +181,7 @@ class RateService:
         age = datetime.now(timezone.utc) - quoted_at
         expired = age > timedelta(minutes=RATE_VALIDITY_MINUTES)
         
-        logger.info(
+        logger.debug(
             f"Rate age check: quoted_at={quoted_at}, age={age}, "
             f"validity={RATE_VALIDITY_MINUTES}min, expired={expired}"
         )
@@ -212,6 +212,6 @@ class RateService:
             return None
         
         sat_amount = int(asset_amount * rate)
-        logger.info(f"Calculated: {asset_amount} assets × {rate} sats/asset = {sat_amount} sats")
+        logger.debug(f"Calculated: {asset_amount} assets × {rate} sats/asset = {sat_amount} sats")
         
         return sat_amount
