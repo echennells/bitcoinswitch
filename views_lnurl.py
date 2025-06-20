@@ -105,6 +105,28 @@ async def lnurl_params(
             "message": "This switch accepts Taproot Assets via RFQ - pay with either sats or assets",
             "rfqEnabled": True
         }
+        
+        # IMPORTANT: For asset switches, set a range around expected value
+        # Since we don't know exact RFQ rate, we'll estimate based on known rates
+        # For bepsi: 1 bepsi ≈ 100 sats, so 10 bepsi ≈ 1000 sats
+        # Setting ±10% range to accommodate rate fluctuations
+        
+        # Get the asset amount from switch config
+        asset_amount = int(current_switch.amount)
+        
+        # Estimate sat value (this is hardcoded for now, could be made configurable)
+        # TODO: Make exchange rate configurable or fetch from somewhere
+        estimated_sats_per_asset = 100  # 1 bepsi = 100 sats
+        estimated_total_sats = asset_amount * estimated_sats_per_asset
+        
+        # Set range with ±10% tolerance
+        min_sats = int(estimated_total_sats * 0.9)
+        max_sats = int(estimated_total_sats * 1.1)
+        
+        resp["minSendable"] = min_sats * 1000  # Convert to millisats
+        resp["maxSendable"] = max_sats * 1000  # Convert to millisats
+        
+        logger.info(f"Asset switch: {asset_amount} units, estimated {min_sats}-{max_sats} sats range")
     
     if comment:
         resp["commentAllowed"] = 1500
@@ -183,16 +205,19 @@ async def lnurl_callback(
         # - Creates proper asset-only invoices (with value=0 sats) that require RFQ conversion
         # - Example: 10 bepsi switch creates invoice for 10 bepsi units (not 10 sats)
         
-        # Extract the asset amount from the switch configuration
-        # This is the amount configured when creating the switch (e.g., 10 for "10 bepsi")
-        asset_amount = int(float(bitcoinswitch_payment.payload.split('-')[0]) if '-' in str(bitcoinswitch_payment.payload) else amount // 1000)
+        # IMPORTANT: For asset switches, ALWAYS use the configured asset amount
+        # regardless of what sat amount the wallet sends
+        # This ensures a "10 bepsi" switch always creates invoice for 10 bepsi
         
-        # For simple switches, use the amount from the LNURL params
-        # The switch's 'amount' field represents asset units when dealing with assets
+        # Find the switch configuration
         for s in switch.switches:
             if s.pin == bitcoinswitch_payment.pin:
                 asset_amount = int(s.amount)
                 break
+        else:
+            # Fallback if switch not found (shouldn't happen)
+            asset_amount = 10
+            logger.warning(f"Could not find switch config for pin {bitcoinswitch_payment.pin}, using default")
         
         logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
         
