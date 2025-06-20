@@ -2,12 +2,11 @@
 Rate service for managing exchange rates between assets and sats.
 Implements market maker functionality for LNURL + Taproot Assets.
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from loguru import logger
 import os
-from lnbits.core.crud import get_wallet
-from .taproot_api_client import TaprootAPIClient
 
 # Configuration from environment or defaults
 RATE_TOLERANCE = float(os.getenv("BITCOINSWITCH_RATE_TOLERANCE", "0.05"))  # 5% default
@@ -15,23 +14,24 @@ RATE_VALIDITY_MINUTES = int(os.getenv("BITCOINSWITCH_RATE_VALIDITY_MINUTES", "5"
 RATE_REFRESH_SECONDS = int(os.getenv("BITCOINSWITCH_RATE_REFRESH_SECONDS", "60"))  # 1 minute default
 
 # Simple in-memory cache for rates
+# In production, this could be Redis or database
 rate_cache: Dict[str, Dict[str, Any]] = {}
 
 
 class RateService:
     """Service for managing asset exchange rates."""
     
-    _client = TaprootAPIClient()
-    
     @staticmethod
     async def get_current_rate(asset_id: str, wallet_id: str, user_id: str, asset_amount: int = 1) -> Optional[float]:
         """
-        Get current exchange rate for an asset via API.
+        Get current exchange rate for an asset by creating a test RFQ quote.
         Returns sats per asset unit.
+        
+        This creates a minimal RFQ buy order to discover the current rate
+        without actually creating an invoice.
         """
         # Check cache first
-        cache_key = f"{asset_id}:{asset_amount}"
-        cached = rate_cache.get(cache_key)
+        cached = rate_cache.get(asset_id)
         if cached:
             cached_at = cached.get("timestamp")
             if cached_at and datetime.now(timezone.utc) - cached_at < timedelta(seconds=RATE_REFRESH_SECONDS):
@@ -39,36 +39,94 @@ class RateService:
                 return cached.get("rate")
         
         try:
-            # Get wallet for API key
-            wallet = await get_wallet(wallet_id)
-            if not wallet:
-                logger.error("Wallet not found")
-                return None
+            # Import taproot assets services to get RFQ rate
+            from ...taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
+            from ...taproot_assets.tapd.taproot_invoices import TaprootInvoiceManager
+            from ....wallets.tapd_grpc_files.rfqrpc import rfq_pb2, rfq_pb2_grpc
             
-            # Call API to get rate
-            result = await RateService._client.get(
-                f"/taproot/rates/{asset_id}",
-                params={"amount": asset_amount},
-                api_key=wallet.adminkey
+            # Create wallet instance
+            taproot_wallet = await TaprootAssetsFactory.create_wallet(
+                user_id=user_id,
+                wallet_id=wallet_id
             )
             
-            if result and result.get("rate_per_unit"):
-                rate = result["rate_per_unit"]
+            # Get RFQ stub from the node
+            node = taproot_wallet.node
+            rfq_stub = rfq_pb2_grpc.RfqStub(node.channel)
+            
+            # First, find the peer with an asset channel
+            # Import asset service to find peer
+            from ...taproot_assets.services.asset_service import AssetService
+            from lnbits.core.models import WalletTypeInfo, Wallet
+            from lnbits.core.models.wallets import KeyType
+            
+            # Create wallet info for asset lookup
+            wallet_obj = Wallet(id=wallet_id, user=user_id, adminkey="", inkey="", balance_msat=0, name="")
+            wallet_info = WalletTypeInfo(key_type=KeyType.admin, wallet=wallet_obj)
+            
+            # Get user's assets to find peer
+            assets = await AssetService.list_assets(wallet_info)
+            peer_pubkey = None
+            
+            for asset in assets:
+                if asset.get("asset_id") == asset_id and asset.get("channel_info") and asset["channel_info"].get("peer_pubkey"):
+                    peer_pubkey = asset["channel_info"]["peer_pubkey"]
+                    logger.debug(f"Found peer for rate quote: {peer_pubkey[:16]}...")
+                    break
+            
+            if not peer_pubkey:
+                logger.warning(f"No peer found with channel for asset {asset_id}")
+                return None
+            
+            # Create a minimal buy order request to get rate quote
+            # Using 1 unit to get per-unit rate
+            asset_id_bytes = bytes.fromhex(asset_id)
+            
+            # Request a quote for the actual amount we'll be invoicing
+            # The RFQ rate can vary based on order size
+            buy_order_request = rfq_pb2.AddAssetBuyOrderRequest(
+                asset_specifier=rfq_pb2.AssetSpecifier(asset_id=asset_id_bytes),
+                asset_max_amt=asset_amount,  # Use the actual amount passed in
+                expiry=int((datetime.now(timezone.utc) + timedelta(minutes=1)).timestamp()),
+                timeout_seconds=5,
+                peer_pub_key=bytes.fromhex(peer_pubkey)  # Add the peer
+            )
+            
+            # Get quote
+            logger.debug(f"Fetching RFQ rate for asset {asset_id[:8]}...")
+            buy_order_response = await rfq_stub.AddAssetBuyOrder(buy_order_request, timeout=5)
+            
+            if buy_order_response.accepted_quote:
+                # Extract rate from the accepted quote
+                # The rate is expressed as coefficient * 10^(-scale)
+                rate_info = buy_order_response.accepted_quote.ask_asset_rate
+                
+                # Calculate total millisats for the order: coefficient / 10^scale
+                total_millisats = float(rate_info.coefficient) / (10 ** rate_info.scale)
+                
+                # The rate is for the total order amount we requested
+                # Divide by the asset amount to get per-unit rate
+                rate_millisats_per_unit = total_millisats / asset_amount
+                
+                # Convert from millisats to sats per unit
+                rate = rate_millisats_per_unit / 1000
+                
+                logger.debug(f"RFQ rate for {asset_amount} units of {asset_id[:8]}...: total={total_millisats} millisats, per-unit={rate} sats/unit")
                 
                 # Cache the rate
-                rate_cache[cache_key] = {
+                rate_cache[asset_id] = {
                     "rate": rate,
-                    "timestamp": datetime.now(timezone.utc)
+                    "timestamp": datetime.now(timezone.utc),
+                    "quote_id": buy_order_response.accepted_quote.id.hex()
                 }
                 
-                logger.debug(f"Got rate from API: {rate} sats/unit for {asset_amount} units of {asset_id[:8]}...")
                 return rate
             else:
-                logger.warning(f"No rate returned from API for asset {asset_id}")
+                logger.warning(f"No RFQ quote received for asset {asset_id}")
                 return None
                 
         except Exception as e:
-            logger.error(f"Failed to fetch rate for asset {asset_id}: {e}")
+            logger.error(f"Failed to fetch RFQ rate for asset {asset_id}: {e}")
             return None
     
     @staticmethod
