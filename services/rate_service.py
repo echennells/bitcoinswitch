@@ -42,7 +42,7 @@ class RateService:
             # Import taproot assets services to get RFQ rate
             from ...taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
             from ...taproot_assets.tapd.taproot_invoices import TaprootInvoiceManager
-            from ...taproot_assets.grpc_generated import rfq_pb2, rfq_pb2_grpc
+            from ...wallets.tapd_grpc_files import rfq_pb2, rfq_pb2_grpc
             
             # Create wallet instance
             taproot_wallet = await TaprootAssetsFactory.create_wallet(
@@ -73,9 +73,14 @@ class RateService:
                 # Extract rate from the accepted quote
                 # The rate is expressed as coefficient * 10^(-scale)
                 rate_info = buy_order_response.accepted_quote.ask_asset_rate
-                rate = float(rate_info.coefficient) / (10 ** rate_info.scale)
                 
-                logger.info(f"RFQ rate for {asset_id[:8]}...: {rate} sats/unit (coefficient={rate_info.coefficient}, scale={rate_info.scale})")
+                # Calculate rate: coefficient / 10^scale
+                rate_millisats = float(rate_info.coefficient) / (10 ** rate_info.scale)
+                
+                # Convert from millisats to sats
+                rate = rate_millisats / 1000
+                
+                logger.info(f"RFQ rate for {asset_id[:8]}...: {rate} sats/unit ({rate_millisats} millisats/unit, coefficient={rate_info.coefficient}, scale={rate_info.scale})")
                 
                 # Cache the rate
                 rate_cache[asset_id] = {
