@@ -71,3 +71,31 @@ async def m003_add_taproot_support(db):
         ADD COLUMN asset_id TEXT;
         """
     )
+
+
+async def m004_add_market_maker_fields(db):
+    """Add market maker fields for rate management."""
+    
+    # Add quoted_rate column
+    await db.execute(
+        """
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN quoted_rate REAL;
+        """
+    )
+    
+    # Add quoted_at column
+    await db.execute(
+        f"""
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN quoted_at TIMESTAMP;
+        """
+    )
+    
+    # Add asset_amount column
+    await db.execute(
+        """
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN asset_amount INTEGER;
+        """
+    )
