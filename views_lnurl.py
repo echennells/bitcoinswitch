@@ -1,5 +1,6 @@
 from http import HTTPStatus
 from typing import Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 from lnbits.core.services import create_invoice
@@ -15,6 +16,7 @@ from .crud import (
     update_bitcoinswitch_payment,
 )
 from .services.taproot_integration import TaprootIntegration
+from .services.rate_service import RateService
 
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
@@ -106,27 +108,46 @@ async def lnurl_params(
             "rfqEnabled": True
         }
         
-        # IMPORTANT: For asset switches, set a range around expected value
-        # Since we don't know exact RFQ rate, we'll estimate based on known rates
-        # For bepsi: 1 bepsi ≈ 100 sats, so 10 bepsi ≈ 1000 sats
-        # Setting ±10% range to accommodate rate fluctuations
+        # MARKET MAKER IMPLEMENTATION: Fetch current RFQ rate
+        # This implements the solution where bitcoinswitch acts as a market maker
+        # by quoting exact sat amounts based on current RFQ rates
         
         # Get the asset amount from switch config
         asset_amount = int(current_switch.amount)
+        asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
         
-        # Estimate sat value (this is hardcoded for now, could be made configurable)
-        # TODO: Make exchange rate configurable or fetch from somewhere
-        estimated_sats_per_asset = 100  # 1 bepsi = 100 sats
-        estimated_total_sats = asset_amount * estimated_sats_per_asset
-        
-        # Set range with ±10% tolerance
-        min_sats = int(estimated_total_sats * 0.9)
-        max_sats = int(estimated_total_sats * 1.1)
-        
-        resp["minSendable"] = min_sats * 1000  # Convert to millisats
-        resp["maxSendable"] = max_sats * 1000  # Convert to millisats
-        
-        logger.info(f"Asset switch: {asset_amount} units, estimated {min_sats}-{max_sats} sats range")
+        # Get wallet info for RFQ access
+        wallet = await get_wallet(switch.wallet)
+        if wallet:
+            # Fetch current RFQ rate
+            sat_amount = await RateService.calculate_sat_amount(
+                asset_id=asset_id,
+                asset_amount=asset_amount,
+                wallet_id=switch.wallet,
+                user_id=wallet.user
+            )
+            
+            if sat_amount:
+                # Store the quoted rate in the payment record
+                bitcoinswitch_payment.quoted_rate = sat_amount / asset_amount
+                bitcoinswitch_payment.quoted_at = datetime.now(timezone.utc)
+                bitcoinswitch_payment.asset_amount = asset_amount
+                await update_bitcoinswitch_payment(bitcoinswitch_payment)
+                
+                # Set exact amount based on current RFQ rate
+                resp["minSendable"] = sat_amount * 1000  # Convert to millisats
+                resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
+                
+                logger.info(f"Asset switch: {asset_amount} units = {sat_amount} sats at current RFQ rate")
+            else:
+                # Fallback if rate fetch fails - use wide range
+                logger.warning(f"Could not fetch RFQ rate for asset {asset_id}, using wide range")
+                resp["minSendable"] = 1000  # 1 sat
+                resp["maxSendable"] = 10000000  # 10k sats
+        else:
+            # No wallet info - use wide range
+            resp["minSendable"] = 1000
+            resp["maxSendable"] = 10000000
     
     if comment:
         resp["commentAllowed"] = 1500
@@ -192,6 +213,43 @@ async def lnurl_callback(
         if not wallet:
             return {"status": "ERROR", "reason": "Wallet not found"}
         
+        # MARKET MAKER: Validate rate if this was a quoted payment
+        if (bitcoinswitch_payment.quoted_rate and 
+            bitcoinswitch_payment.quoted_at and
+            bitcoinswitch_payment.asset_amount):
+            
+            # Check if quote has expired
+            if RateService.is_rate_expired(bitcoinswitch_payment.quoted_at):
+                logger.warning(f"Rate quote expired for payment {payment_id}")
+                return {
+                    "status": "ERROR",
+                    "reason": "Price quote has expired. Please scan the QR code again for current pricing."
+                }
+            
+            # Get current rate and check tolerance
+            current_rate = await RateService.get_current_rate(
+                asset_id=asset_id,
+                wallet_id=switch.wallet,
+                user_id=wallet.user
+            )
+            
+            if current_rate:
+                if not RateService.is_rate_within_tolerance(
+                    bitcoinswitch_payment.quoted_rate,
+                    current_rate
+                ):
+                    logger.warning(
+                        f"Rate changed beyond tolerance. Quoted: {bitcoinswitch_payment.quoted_rate}, "
+                        f"Current: {current_rate}"
+                    )
+                    return {
+                        "status": "ERROR",
+                        "reason": "Exchange rate has changed significantly. Please scan the QR code again for current pricing."
+                    }
+            else:
+                logger.warning(f"Could not verify current rate for asset {asset_id}")
+                # Continue anyway - let RFQ handle it
+        
         # IMPORTANT FIX: Asset amount handling for proper RFQ invoices
         # The 'amount' parameter from LNURL is in millisats and represents the switch's configured amount
         # For asset invoices, we need to pass the ASSET UNITS, not the sat value
@@ -205,19 +263,24 @@ async def lnurl_callback(
         # - Creates proper asset-only invoices (with value=0 sats) that require RFQ conversion
         # - Example: 10 bepsi switch creates invoice for 10 bepsi units (not 10 sats)
         
-        # IMPORTANT: For asset switches, ALWAYS use the configured asset amount
-        # regardless of what sat amount the wallet sends
-        # This ensures a "10 bepsi" switch always creates invoice for 10 bepsi
+        # MARKET MAKER: Use the asset amount that was quoted
+        # This ensures we create an invoice for the exact asset amount
+        # that corresponds to the sat amount we quoted
         
-        # Find the switch configuration
-        for s in switch.switches:
-            if s.pin == bitcoinswitch_payment.pin:
-                asset_amount = int(s.amount)
-                break
+        if bitcoinswitch_payment.asset_amount:
+            # Use the quoted asset amount
+            asset_amount = bitcoinswitch_payment.asset_amount
+            logger.info(f"Using quoted asset amount: {asset_amount}")
         else:
-            # Fallback if switch not found (shouldn't happen)
-            asset_amount = 10
-            logger.warning(f"Could not find switch config for pin {bitcoinswitch_payment.pin}, using default")
+            # Fallback to switch configuration
+            for s in switch.switches:
+                if s.pin == bitcoinswitch_payment.pin:
+                    asset_amount = int(s.amount)
+                    break
+            else:
+                # Fallback if switch not found (shouldn't happen)
+                asset_amount = 10
+                logger.warning(f"Could not find switch config for pin {bitcoinswitch_payment.pin}, using default")
         
         logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
         

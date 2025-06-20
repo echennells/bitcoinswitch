@@ -70,3 +70,7 @@ class BitcoinswitchPayment(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_taproot: bool = False
     asset_id: Optional[str] = None
+    # Market maker fields for rate management
+    quoted_rate: Optional[float] = None  # Sats per asset at quote time
+    quoted_at: Optional[datetime] = None  # When the rate was quoted
+    asset_amount: Optional[int] = None  # Target asset amount
