@@ -42,7 +42,7 @@ class RateService:
             # Import taproot assets services to get RFQ rate
             from ...taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
             from ...taproot_assets.tapd.taproot_invoices import TaprootInvoiceManager
-            from ...wallets.tapd_grpc_files import rfq_pb2, rfq_pb2_grpc
+            from ....wallets.tapd_grpc_files.rfqrpc import rfq_pb2, rfq_pb2_grpc
             
             # Create wallet instance
             taproot_wallet = await TaprootAssetsFactory.create_wallet(
