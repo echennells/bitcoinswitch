@@ -143,6 +143,21 @@ async def lnurl_callback(
             current_switch = s
             break
     
+    # IMPORTANT FIX: Check if this switch is configured for taproot assets
+    # If the switch accepts assets, ALWAYS create an asset invoice, regardless of callback parameters
+    # This prevents dual-mode invoices where users can pay with either sats or assets
+    if (current_switch and
+        current_switch.accepts_assets and 
+        current_switch.accepted_asset_ids and
+        len(current_switch.accepted_asset_ids) > 0 and
+        await TaprootIntegration.is_taproot_available()):
+        
+        # If no asset_id provided in callback, use the first accepted asset
+        # This ensures asset-configured switches ONLY create asset invoices
+        if not asset_id or asset_id not in current_switch.accepted_asset_ids:
+            asset_id = current_switch.accepted_asset_ids[0]
+            logger.info(f"No valid asset_id in callback, using configured asset: {asset_id}")
+    
     # Check if we should create a Taproot Asset invoice
     if (current_switch and
         current_switch.accepts_assets and 
@@ -231,7 +246,23 @@ async def lnurl_callback(
             logger.error("Failed to create RFQ invoice - taproot_result is None")
             return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
     
-    # Fall back to regular Lightning invoice
+    # IMPORTANT: Check if this switch is configured for assets
+    # If it is, we should NEVER create a regular Lightning invoice
+    # This prevents the dual-mode behavior where switches accept both sats and assets
+    if (current_switch and 
+        current_switch.accepts_assets and 
+        current_switch.accepted_asset_ids and 
+        len(current_switch.accepted_asset_ids) > 0):
+        # This is an asset-configured switch but we're here because:
+        # 1. Taproot integration is not available, OR
+        # 2. No valid asset_id was provided
+        # In either case, we should fail rather than create a regular invoice
+        return {
+            "status": "ERROR", 
+            "reason": "This switch only accepts Taproot Asset payments. Please use a wallet that supports Taproot Assets."
+        }
+    
+    # Fall back to regular Lightning invoice ONLY for non-asset switches
     payment = await create_invoice(
         wallet_id=switch.wallet,
         amount=int(amount / 1000),
