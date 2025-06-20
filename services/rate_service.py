@@ -54,6 +54,30 @@ class RateService:
             node = taproot_wallet.node
             rfq_stub = rfq_pb2_grpc.RfqStub(node.channel)
             
+            # First, find the peer with an asset channel
+            # Import asset service to find peer
+            from ...taproot_assets.services.asset_service import AssetService
+            from lnbits.core.models import WalletTypeInfo, Wallet
+            from lnbits.core.models.wallets import KeyType
+            
+            # Create wallet info for asset lookup
+            wallet_obj = Wallet(id=wallet_id, user=user_id, adminkey="", inkey="", balance_msat=0, name="")
+            wallet_info = WalletTypeInfo(key_type=KeyType.admin, wallet=wallet_obj)
+            
+            # Get user's assets to find peer
+            assets = await AssetService.list_assets(wallet_info)
+            peer_pubkey = None
+            
+            for asset in assets:
+                if asset.get("asset_id") == asset_id and asset.get("channel_info") and asset["channel_info"].get("peer_pubkey"):
+                    peer_pubkey = asset["channel_info"]["peer_pubkey"]
+                    logger.info(f"Found peer for rate quote: {peer_pubkey[:16]}...")
+                    break
+            
+            if not peer_pubkey:
+                logger.warning(f"No peer found with channel for asset {asset_id}")
+                return None
+            
             # Create a minimal buy order request to get rate quote
             # Using 1 unit to get per-unit rate
             asset_id_bytes = bytes.fromhex(asset_id)
@@ -62,7 +86,8 @@ class RateService:
                 asset_specifier=rfq_pb2.AssetSpecifier(asset_id=asset_id_bytes),
                 asset_max_amt=1,  # Request quote for 1 unit to get unit price
                 expiry=int((datetime.now(timezone.utc) + timedelta(minutes=1)).timestamp()),
-                timeout_seconds=5
+                timeout_seconds=5,
+                peer_pub_key=bytes.fromhex(peer_pubkey)  # Add the peer
             )
             
             # Get quote
