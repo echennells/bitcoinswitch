@@ -1,11 +1,14 @@
 """Integration with Taproot Assets extension."""
 from typing import Optional, Dict, Any
 from loguru import logger
-from lnbits.core.crud import get_installed_extensions
+from lnbits.core.crud import get_installed_extensions, get_wallet
+from .taproot_api_client import TaprootAPIClient
 
 
 class TaprootIntegration:
     """Handle integration with Taproot Assets extension."""
+    
+    _client = TaprootAPIClient()
     
     @staticmethod
     async def is_taproot_available() -> bool:
@@ -28,42 +31,44 @@ class TaprootIntegration:
         peer_pubkey: Optional[str] = None,
         expiry: Optional[int] = None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Create a Taproot Asset invoice using the RFQ (Request for Quote) process.
-        This creates an invoice that can be paid with either sats or the specified asset.
-        """
+        """Create a Taproot Asset invoice via API."""
         try:
-            # Simply use the invoice service which now handles peer discovery
-            from ...taproot_assets.services.invoice_service import InvoiceService
-            from ...taproot_assets.models import TaprootInvoiceRequest
+            # Get wallet for API key
+            wallet = await get_wallet(wallet_id)
+            if not wallet:
+                logger.error("Wallet not found")
+                return None
             
-            # Create the invoice request
-            request = TaprootInvoiceRequest(
-                asset_id=asset_id,
-                amount=amount,
-                description=description,
-                expiry=expiry,
-                peer_pubkey=peer_pubkey,  # Can be None - invoice service will find it
-                extra=extra
-            )
-            
-            # Let the invoice service handle everything including peer discovery
-            response = await InvoiceService.create_invoice(
-                data=request,
-                user_id=user_id,
-                wallet_id=wallet_id
-            )
-            
-            return {
-                "payment_hash": response.payment_hash,
-                "payment_request": response.payment_request,
-                "checking_id": response.checking_id,
-                "is_rfq": True
+            # Prepare invoice data
+            invoice_data = {
+                "asset_id": asset_id,
+                "amount": amount,
+                "description": description,
+                "extra": extra
             }
             
-        except ImportError as e:
-            logger.error(f"Taproot Assets extension not available: {e}")
+            if expiry:
+                invoice_data["expiry"] = expiry
+            if peer_pubkey:
+                invoice_data["peer_pubkey"] = peer_pubkey
+            
+            # Call API
+            result = await TaprootIntegration._client.post(
+                "/taproot/invoices",
+                invoice_data,
+                wallet.adminkey
+            )
+            
+            if result:
+                return {
+                    "payment_hash": result.get("payment_hash"),
+                    "payment_request": result.get("payment_request"),
+                    "checking_id": result.get("checking_id"),
+                    "is_rfq": True
+                }
+            
             return None
+            
         except Exception as e:
             logger.error(f"Failed to create RFQ invoice: {e}")
             return None
