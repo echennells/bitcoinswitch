@@ -227,10 +227,12 @@ async def lnurl_callback(
                 }
             
             # Get current rate and check tolerance
+            # Use the same asset amount that was quoted
             current_rate = await RateService.get_current_rate(
                 asset_id=asset_id,
                 wallet_id=switch.wallet,
-                user_id=wallet.user
+                user_id=wallet.user,
+                asset_amount=bitcoinswitch_payment.asset_amount
             )
             
             if current_rate:

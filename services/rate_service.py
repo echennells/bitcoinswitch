@@ -22,7 +22,7 @@ class RateService:
     """Service for managing asset exchange rates."""
     
     @staticmethod
-    async def get_current_rate(asset_id: str, wallet_id: str, user_id: str) -> Optional[float]:
+    async def get_current_rate(asset_id: str, wallet_id: str, user_id: str, asset_amount: int = 1) -> Optional[float]:
         """
         Get current exchange rate for an asset by creating a test RFQ quote.
         Returns sats per asset unit.
@@ -82,9 +82,11 @@ class RateService:
             # Using 1 unit to get per-unit rate
             asset_id_bytes = bytes.fromhex(asset_id)
             
+            # Request a quote for the actual amount we'll be invoicing
+            # The RFQ rate can vary based on order size
             buy_order_request = rfq_pb2.AddAssetBuyOrderRequest(
                 asset_specifier=rfq_pb2.AssetSpecifier(asset_id=asset_id_bytes),
-                asset_max_amt=1,  # Request quote for 1 unit to get unit price
+                asset_max_amt=asset_amount,  # Use the actual amount passed in
                 expiry=int((datetime.now(timezone.utc) + timedelta(minutes=1)).timestamp()),
                 timeout_seconds=5,
                 peer_pub_key=bytes.fromhex(peer_pubkey)  # Add the peer
@@ -99,13 +101,17 @@ class RateService:
                 # The rate is expressed as coefficient * 10^(-scale)
                 rate_info = buy_order_response.accepted_quote.ask_asset_rate
                 
-                # Calculate rate: coefficient / 10^scale
-                rate_millisats = float(rate_info.coefficient) / (10 ** rate_info.scale)
+                # Calculate total millisats for the order: coefficient / 10^scale
+                total_millisats = float(rate_info.coefficient) / (10 ** rate_info.scale)
                 
-                # Convert from millisats to sats
-                rate = rate_millisats / 1000
+                # The rate is for the total order amount we requested
+                # Divide by the asset amount to get per-unit rate
+                rate_millisats_per_unit = total_millisats / asset_amount
                 
-                logger.info(f"RFQ rate for {asset_id[:8]}...: {rate} sats/unit ({rate_millisats} millisats/unit, coefficient={rate_info.coefficient}, scale={rate_info.scale})")
+                # Convert from millisats to sats per unit
+                rate = rate_millisats_per_unit / 1000
+                
+                logger.info(f"RFQ rate for {asset_amount} units of {asset_id[:8]}...: total={total_millisats} millisats, per-unit={rate} sats/unit (coefficient={rate_info.coefficient}, scale={rate_info.scale})")
                 
                 # Cache the rate
                 rate_cache[asset_id] = {
@@ -201,7 +207,7 @@ class RateService:
         Returns:
             Satoshi amount, or None if rate not available
         """
-        rate = await RateService.get_current_rate(asset_id, wallet_id, user_id)
+        rate = await RateService.get_current_rate(asset_id, wallet_id, user_id, asset_amount)
         if not rate:
             return None
         
