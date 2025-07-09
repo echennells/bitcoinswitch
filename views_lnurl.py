@@ -273,6 +273,12 @@ async def lnurl_callback(
         
         logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
         
+        # RFQ Debug: Log when bitcoinswitch creates RFQ invoice
+        logger.info(f"RFQ_DEBUG: BitcoinSwitch creating RFQ invoice - Asset: {asset_id}, Amount: {asset_amount}")
+        logger.info(f"RFQ_DEBUG: Expected sat payment: {amount/1000} sats")
+        logger.info(f"RFQ_DEBUG: Payment ID: {payment_id}")
+        logger.info(f"RFQ_DEBUG: Switch ID: {switch.id}, Pin: {bitcoinswitch_payment.pin}")
+        
         # Create Taproot Asset invoice using RFQ process
         # This creates an invoice for X units of the asset (with Lightning value=0)
         # The invoice can be paid with sats through RFQ conversion at market rate
