@@ -178,3 +178,31 @@ class RateService:
         logger.debug(f"Calculated: {asset_amount} assets × {rate} sats/asset = {sat_amount} sats")
         
         return sat_amount
+    
+    @staticmethod
+    async def calculate_asset_amount(
+        asset_id: str,
+        sat_amount: int,
+        wallet_id: str,
+        user_id: str
+    ) -> Optional[int]:
+        """
+        Calculate asset amount for given satoshi amount.
+        
+        Args:
+            asset_id: The asset ID
+            sat_amount: Amount of satoshis
+            wallet_id: Wallet ID for RFQ access
+            user_id: User ID for RFQ access
+            
+        Returns:
+            Asset amount, or None if rate not available
+        """
+        rate = await RateService.get_current_rate(asset_id, wallet_id, user_id, 1)
+        if not rate or rate <= 0:
+            return None
+        
+        asset_amount = int(sat_amount / rate)
+        logger.debug(f"Calculated: {sat_amount} sats ÷ {rate} sats/asset = {asset_amount} assets")
+        
+        return asset_amount

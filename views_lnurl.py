@@ -119,42 +119,42 @@ async def lnurl_params(
         # This implements the solution where bitcoinswitch acts as a market maker
         # by quoting exact sat amounts based on current RFQ rates
         
-        # Get the asset amount from switch config
-        asset_amount = int(current_switch.amount)
+        # Use the configured amount directly as the sat amount for the invoice
+        sat_amount = int(current_switch.amount)  # This is already in sats
         asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
         
         # Get wallet info for RFQ access
         wallet = await get_wallet(switch.wallet)
         if wallet:
-            # Fetch current RFQ rate
-            sat_amount = await RateService.calculate_sat_amount(
+            # Calculate how many assets this represents at current rate
+            asset_amount = await RateService.calculate_asset_amount(
                 asset_id=asset_id,
-                asset_amount=asset_amount,
+                sat_amount=sat_amount,  # Convert FROM sats TO assets
                 wallet_id=switch.wallet,
                 user_id=wallet.user
             )
             
-            if sat_amount:
-                # Store the quoted rate in the payment record
-                bitcoinswitch_payment.quoted_rate = sat_amount / asset_amount
-                bitcoinswitch_payment.quoted_at = datetime.now(timezone.utc)
+            if asset_amount:
+                # Store the asset amount and rate for payment tracking
                 bitcoinswitch_payment.asset_amount = asset_amount
+                bitcoinswitch_payment.quoted_rate = sat_amount / asset_amount if asset_amount > 0 else 0
+                bitcoinswitch_payment.quoted_at = datetime.now(timezone.utc)
                 await update_bitcoinswitch_payment(bitcoinswitch_payment)
                 
-                # Set exact amount based on current RFQ rate
+                # Use the original configured amount for the invoice
                 resp["minSendable"] = sat_amount * 1000  # Convert to millisats
                 resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
                 
-                logger.debug(f"Asset switch: {asset_amount} units = {sat_amount} sats at current RFQ rate")
+                logger.debug(f"Asset switch: {sat_amount} sats = {asset_amount} units at current RFQ rate")
             else:
-                # Fallback if rate fetch fails - use wide range
-                logger.warning(f"Could not fetch RFQ rate for asset {asset_id}, using wide range")
-                resp["minSendable"] = 1000  # 1 sat
-                resp["maxSendable"] = 10000000  # 10k sats
+                # Fallback if rate fetch fails - use configured amount
+                logger.warning(f"Could not fetch RFQ rate for asset {asset_id}, using configured amount")
+                resp["minSendable"] = sat_amount * 1000  # Convert to millisats
+                resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
         else:
-            # No wallet info - use wide range
-            resp["minSendable"] = 1000
-            resp["maxSendable"] = 10000000
+            # No wallet info - use configured amount
+            resp["minSendable"] = sat_amount * 1000
+            resp["maxSendable"] = sat_amount * 1000
     
     if comment:
         resp["commentAllowed"] = 1500
