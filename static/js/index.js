@@ -61,6 +61,9 @@ window.app = Vue.createApp({
           profit: 1,
           amount: 1,
           title: '',
+          wallet: '',
+          currency: 'sat',
+          password: '',
           default_accepts_assets: false
         }
       },
@@ -113,9 +116,6 @@ window.app = Vue.createApp({
     },
     closeFormDialog() {
       this.clearFormDialog()
-      this.formDialog.data = {
-        is_unique: false
-      }
     },
     sendFormData() {
       if (this.formDialog.data.id) {
@@ -134,10 +134,13 @@ window.app = Vue.createApp({
     createBitcoinswitch(wallet, data) {
       const updatedData = {}
       for (const property in data) {
-        if (data[property]) {
+        if (data[property] !== undefined && data[property] !== null && data[property] !== '') {
           updatedData[property] = data[property]
         }
       }
+      // Ensure boolean fields are included even if false
+      updatedData.default_accepts_assets = data.default_accepts_assets || false
+      
       LNbits.api
         .request(
           'POST',
@@ -157,10 +160,15 @@ window.app = Vue.createApp({
     updateBitcoinswitch(wallet, data) {
       const updatedData = {}
       for (const property in data) {
-        if (data[property]) {
+        if (data[property] !== undefined && data[property] !== null && data[property] !== '') {
           updatedData[property] = data[property]
         }
       }
+      // Ensure boolean fields are included even if false
+      updatedData.default_accepts_assets = data.default_accepts_assets || false
+      // Always include id for update
+      updatedData.id = data.id
+      
       LNbits.api
         .request(
           'PUT',
@@ -219,11 +227,23 @@ window.app = Vue.createApp({
             })
         })
     },
+    openCreateDialog() {
+      this.clearFormDialog()
+      // Add a default switch if none exist
+      if (this.formDialog.data.switches.length === 0) {
+        this.addSwitch()
+      }
+      this.formDialog.show = true
+    },
     openUpdateBitcoinswitch(bitcoinswitchId) {
       const bitcoinswitch = _.findWhere(this.bitcoinswitches, {
         id: bitcoinswitchId
       })
       this.formDialog.data = _.clone(bitcoinswitch)
+      // Ensure default_accepts_assets is set even if missing in the data
+      if (this.formDialog.data.default_accepts_assets === undefined) {
+        this.formDialog.data.default_accepts_assets = false
+      }
       this.formDialog.show = true
     },
     openBitcoinswitchSettings(bitcoinswitchId) {
@@ -331,11 +351,19 @@ window.app = Vue.createApp({
     },
     clearFormDialog() {
       this.formDialog.data = {
+        switches: [],
         lnurl_toggle: false,
         show_message: false,
         show_ack: false,
         show_price: 'None',
-        title: ''
+        device: 'pos',
+        profit: 1,
+        amount: 1,
+        title: '',
+        wallet: '',
+        currency: 'sat',
+        password: '',
+        default_accepts_assets: false
       }
     },
     exportCSV() {
