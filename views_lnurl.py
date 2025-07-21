@@ -115,46 +115,60 @@ async def lnurl_params(
             "rfqEnabled": True
         }
         
-        # MARKET MAKER IMPLEMENTATION: Fetch current RFQ rate
-        # This implements the solution where bitcoinswitch acts as a market maker
-        # by quoting exact sat amounts based on current RFQ rates
-        
-        # Use the configured amount directly as the sat amount for the invoice
-        sat_amount = int(current_switch.amount)  # This is already in sats
+        # For asset-accepting switches, we need to use RFQ to determine the sat amount
+        # This is the FIRST RFQ - to get min/max for LNURL response
         asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
+        asset_amount = int(current_switch.amount)  # The switch's configured asset amount
         
-        # Get wallet info for RFQ access
+        logger.info(f"LNURL: Creating RFQ invoice for {asset_amount} assets to determine LNURL amounts")
+        
+        # Get wallet info for invoice creation
         wallet = await get_wallet(switch.wallet)
         if wallet:
-            # Calculate how many assets this represents at current rate
-            asset_amount = await RateService.calculate_asset_amount(
-                asset_id=asset_id,
-                sat_amount=sat_amount,  # Convert FROM sats TO assets
-                wallet_id=switch.wallet,
-                user_id=wallet.user
-            )
-            
-            if asset_amount:
-                # Store the asset amount and rate for payment tracking
-                bitcoinswitch_payment.asset_amount = asset_amount
-                bitcoinswitch_payment.quoted_rate = sat_amount / asset_amount if asset_amount > 0 else 0
-                bitcoinswitch_payment.quoted_at = datetime.now(timezone.utc)
-                await update_bitcoinswitch_payment(bitcoinswitch_payment)
+            try:
+                # Create an RFQ invoice using the same process as taproot_assets
+                from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
+                from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
                 
-                # Use the original configured amount for the invoice
-                resp["minSendable"] = sat_amount * 1000  # Convert to millisats
-                resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
+                # Create invoice for the switch's asset amount
+                rfq_request = TaprootInvoiceRequest(
+                    asset_id=asset_id,
+                    amount=asset_amount,
+                    description=f"{switch.title} - LNURL rate check",
+                    expiry=300  # 5 minutes
+                )
                 
-                logger.debug(f"Asset switch: {sat_amount} sats = {asset_amount} units at current RFQ rate")
-            else:
-                # Fallback if rate fetch fails - use configured amount
-                logger.warning(f"Could not fetch RFQ rate for asset {asset_id}, using configured amount")
-                resp["minSendable"] = sat_amount * 1000  # Convert to millisats
-                resp["maxSendable"] = sat_amount * 1000  # Convert to millisats
-        else:
-            # No wallet info - use configured amount
-            resp["minSendable"] = sat_amount * 1000
-            resp["maxSendable"] = sat_amount * 1000
+                rfq_invoice = await InvoiceService.create_invoice(
+                    data=rfq_request,
+                    user_id=wallet.user,
+                    wallet_id=switch.wallet
+                )
+                
+                # Decode the invoice to get the sat amount that RFQ determined
+                from lnbits.bolt11 import decode as bolt11_decode
+                decoded = bolt11_decode(rfq_invoice.payment_request)
+                
+                if decoded.amount_msat:
+                    # This is the actual sat amount for the asset amount according to RFQ
+                    rfq_sats = decoded.amount_msat / 1000
+                    
+                    # Set LNURL amounts based on what RFQ returned
+                    resp["minSendable"] = decoded.amount_msat
+                    resp["maxSendable"] = decoded.amount_msat
+                    
+                    logger.info(f"LNURL: RFQ returned {rfq_sats} sats for {asset_amount} assets")
+                    
+                    # Store the RFQ details for validation in callback
+                    bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
+                    bitcoinswitch_payment.rfq_asset_amount = asset_amount
+                    bitcoinswitch_payment.rfq_sat_amount = rfq_sats
+                    await update_bitcoinswitch_payment(bitcoinswitch_payment)
+                else:
+                    logger.warning("RFQ invoice has no amount, falling back to price_msat")
+                    
+            except Exception as e:
+                logger.error(f"Failed to create RFQ invoice for LNURL: {e}")
+                # Fall back to original price_msat if RFQ fails
     
     if comment:
         resp["commentAllowed"] = 1500
@@ -253,23 +267,27 @@ async def lnurl_callback(
                 logger.warning(f"Could not verify current rate for asset {asset_id}")
                 # Continue anyway - let RFQ handle it
         
-        # Use the asset amount that was quoted (if available) to ensure consistency
-        # with the sat amount displayed in the LNURL response
+        # This is the SECOND RFQ - create the actual invoice
+        # The amount parameter from the wallet tells us how many sats they want to pay
+        requested_sats = amount / 1000
         
-        if bitcoinswitch_payment.asset_amount:
-            # Use the quoted asset amount
-            asset_amount = bitcoinswitch_payment.asset_amount
-            logger.debug(f"Using quoted asset amount: {asset_amount}")
+        # We stored the RFQ rate from the first invoice
+        if (hasattr(bitcoinswitch_payment, 'rfq_sat_amount') and 
+            hasattr(bitcoinswitch_payment, 'rfq_asset_amount') and
+            bitcoinswitch_payment.rfq_sat_amount is not None and
+            bitcoinswitch_payment.rfq_asset_amount is not None and
+            bitcoinswitch_payment.rfq_asset_amount > 0):
+            # Calculate the rate from the first RFQ
+            rate_per_asset = bitcoinswitch_payment.rfq_sat_amount / bitcoinswitch_payment.rfq_asset_amount
+            # Calculate how many assets for the requested sats
+            asset_amount = int(requested_sats / rate_per_asset)
+            if asset_amount < 1:
+                asset_amount = 1
+            logger.debug(f"Using RFQ rate {rate_per_asset} sats/asset: {requested_sats} sats = {asset_amount} assets")
         else:
-            # Fallback to switch configuration
-            for s in switch.switches:
-                if s.pin == bitcoinswitch_payment.pin:
-                    asset_amount = int(s.amount)
-                    break
-            else:
-                # Fallback if switch not found (shouldn't happen)
-                asset_amount = 10
-                logger.warning(f"Could not find switch config for pin {bitcoinswitch_payment.pin}, using default")
+            # Fallback to switch configuration if no RFQ data
+            asset_amount = int(current_switch.amount)
+            logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
         
         logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
         

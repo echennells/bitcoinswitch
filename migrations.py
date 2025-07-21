@@ -99,3 +99,31 @@ async def m004_add_market_maker_fields(db):
         ADD COLUMN asset_amount INTEGER;
         """
     )
+
+
+async def m005_add_rfq_fields(db):
+    """Add RFQ fields for LNURL flow."""
+    
+    # Add rfq_invoice_hash column
+    await db.execute(
+        """
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN rfq_invoice_hash TEXT;
+        """
+    )
+    
+    # Add rfq_asset_amount column
+    await db.execute(
+        """
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN rfq_asset_amount INTEGER;
+        """
+    )
+    
+    # Add rfq_sat_amount column
+    await db.execute(
+        """
+        ALTER TABLE bitcoinswitch.payment 
+        ADD COLUMN rfq_sat_amount REAL;
+        """
+    )

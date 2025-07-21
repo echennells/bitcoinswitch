@@ -34,8 +34,8 @@ class TaprootIntegration:
         """
         try:
             # Simply use the invoice service which now handles peer discovery
-            from ...taproot_assets.services.invoice_service import InvoiceService
-            from ...taproot_assets.models import TaprootInvoiceRequest
+            from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
+            from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
             
             # Create the invoice request
             request = TaprootInvoiceRequest(

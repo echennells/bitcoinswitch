@@ -30,12 +30,13 @@ class RateService:
         This creates a minimal RFQ buy order to discover the current rate
         without actually creating an invoice.
         """
-        # Check cache first
-        cached = rate_cache.get(asset_id)
+        # Check cache first - include amount in cache key since rates vary by amount
+        cache_key = f"{asset_id}:{asset_amount}"
+        cached = rate_cache.get(cache_key)
         if cached:
             cached_at = cached.get("timestamp")
             if cached_at and datetime.now(timezone.utc) - cached_at < timedelta(seconds=RATE_REFRESH_SECONDS):
-                logger.debug(f"Using cached rate for {asset_id[:8]}...: {cached['rate']} sats/unit")
+                logger.debug(f"Using cached rate for {asset_id[:8]}... amount={asset_amount}: {cached['rate']} sats/unit")
                 return cached.get("rate")
         
         try:
@@ -72,8 +73,9 @@ class RateService:
                     if data.get("rate_per_unit"):
                         rate = data["rate_per_unit"]
                         
-                        # Cache the rate
-                        rate_cache[asset_id] = {
+                        # Cache the rate with amount-specific key
+                        cache_key = f"{asset_id}:{asset_amount}"
+                        rate_cache[cache_key] = {
                             "rate": rate,
                             "timestamp": datetime.now(timezone.utc),
                             "quote_id": data.get("quote_id", "")
@@ -178,31 +180,3 @@ class RateService:
         logger.debug(f"Calculated: {asset_amount} assets × {rate} sats/asset = {sat_amount} sats")
         
         return sat_amount
-    
-    @staticmethod
-    async def calculate_asset_amount(
-        asset_id: str,
-        sat_amount: int,
-        wallet_id: str,
-        user_id: str
-    ) -> Optional[int]:
-        """
-        Calculate asset amount for given satoshi amount.
-        
-        Args:
-            asset_id: The asset ID
-            sat_amount: Amount of satoshis
-            wallet_id: Wallet ID for RFQ access
-            user_id: User ID for RFQ access
-            
-        Returns:
-            Asset amount, or None if rate not available
-        """
-        rate = await RateService.get_current_rate(asset_id, wallet_id, user_id, 1)
-        if not rate or rate <= 0:
-            return None
-        
-        asset_amount = int(sat_amount / rate)
-        logger.debug(f"Calculated: {sat_amount} sats ÷ {rate} sats/asset = {asset_amount} assets")
-        
-        return asset_amount

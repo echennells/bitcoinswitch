@@ -268,8 +268,12 @@
                 dense
                 v-model.trim="_switch.amount"
                 class="q-pb-md"
-                :label="'Amount (' + formDialog.data.currency + ') *'"
-              ></q-input>
+                :label="_switch.accepts_assets ? 'Amount (assets) *' : 'Amount (' + formDialog.data.currency + ') *'"
+              >
+                <q-tooltip v-if="_switch.accepts_assets">
+                  This is the number of assets to request. The invoice will show the sat equivalent at current market rates.
+                </q-tooltip>
+              </q-input>
             </div>
             <div class="col q-ml-md">
               <q-input
@@ -329,7 +333,10 @@
                 label="Accept Taproot Assets"
                 @update:model-value="val => { if (!val) _switch.accepted_asset_ids = [] }"
               >
-                <q-tooltip>Allow payments with Taproot Assets</q-tooltip>
+                <q-tooltip>
+                  When enabled, the amount field represents the number of assets (not sats/fiat).
+                  The invoice will dynamically show the sat equivalent based on current market rates.
+                </q-tooltip>
               </q-checkbox>
             </div>
           </div>
@@ -369,6 +376,11 @@
                   </q-chip>
                 </template>
               </q-select>
+              <div class="text-caption text-grey q-mt-xs">
+                <q-icon name="info" size="xs" class="q-mr-xs"/>
+                The amount field above represents units of any of these selected assets.
+                The invoice will show the sat equivalent based on whichever asset the payer chooses.
+              </div>
             </div>
           </div>
         </div>

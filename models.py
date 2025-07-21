@@ -74,3 +74,7 @@ class BitcoinswitchPayment(BaseModel):
     quoted_rate: Optional[float] = None  # Sats per asset at quote time
     quoted_at: Optional[datetime] = None  # When the rate was quoted
     asset_amount: Optional[int] = None  # Target asset amount
+    # RFQ fields for LNURL flow
+    rfq_invoice_hash: Optional[str] = None  # Hash of the first RFQ invoice
+    rfq_asset_amount: Optional[int] = None  # Asset amount from first RFQ
+    rfq_sat_amount: Optional[float] = None  # Sat amount from first RFQ
