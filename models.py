@@ -16,7 +16,7 @@ class Switch(BaseModel):
     label: Optional[str] = None
     lnurl: Optional[str] = None
     accepts_assets: bool = False
-    accepted_asset_ids: Optional[list[str]] = []
+    accepted_asset_ids: list[str] = Field(default_factory=list)
 
     def set_lnurl(self, url: str) -> str:
         self.lnurl = str(
