@@ -2,7 +2,6 @@
 Rate service for managing exchange rates between assets and sats.
 Implements market maker functionality for LNURL + Taproot Assets.
 """
-import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from loguru import logger
@@ -152,31 +151,3 @@ class RateService:
         )
         
         return expired
-    
-    @staticmethod
-    async def calculate_sat_amount(
-        asset_id: str,
-        asset_amount: int,
-        wallet_id: str,
-        user_id: str
-    ) -> Optional[int]:
-        """
-        Calculate satoshi amount for given asset amount.
-        
-        Args:
-            asset_id: The asset ID
-            asset_amount: Amount of assets
-            wallet_id: Wallet ID for RFQ access
-            user_id: User ID for RFQ access
-            
-        Returns:
-            Satoshi amount, or None if rate not available
-        """
-        rate = await RateService.get_current_rate(asset_id, wallet_id, user_id, asset_amount)
-        if not rate:
-            return None
-        
-        sat_amount = int(asset_amount * rate)
-        logger.debug(f"Calculated: {asset_amount} assets × {rate} sats/asset = {sat_amount} sats")
-        
-        return sat_amount

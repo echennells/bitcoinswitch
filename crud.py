@@ -47,12 +47,16 @@ async def get_bitcoinswitch(bitcoinswitch_id: str) -> Optional[Bitcoinswitch]:
 
 
 async def get_bitcoinswitches(wallet_ids: list[str]) -> list[Bitcoinswitch]:
-    q = ",".join([f"'{w}'" for w in wallet_ids])
+    if not wallet_ids:
+        return []
+    placeholders = ",".join([f":wallet_{i}" for i in range(len(wallet_ids))])
+    params = {f"wallet_{i}": wallet_id for i, wallet_id in enumerate(wallet_ids)}
     return await db.fetchall(
         f"""
-        SELECT * FROM bitcoinswitch.switch WHERE wallet IN ({q})
+        SELECT * FROM bitcoinswitch.switch WHERE wallet IN ({placeholders})
         ORDER BY id
         """,
+        params,
         model=Bitcoinswitch,
     )
 
@@ -105,52 +109,5 @@ async def get_bitcoinswitch_payment(
     return await db.fetchone(
         "SELECT * FROM bitcoinswitch.payment WHERE id = :id",
         {"id": bitcoinswitchpayment_id},
-        BitcoinswitchPayment,
-    )
-
-
-async def get_bitcoinswitch_payments(
-    bitcoinswitch_ids: list[str],
-) -> list[BitcoinswitchPayment]:
-    if len(bitcoinswitch_ids) == 0:
-        return []
-    q = ",".join([f"'{w}'" for w in bitcoinswitch_ids])
-    return await db.fetchall(
-        f"""
-        SELECT * FROM bitcoinswitch.payment WHERE deviceid IN ({q})
-        ORDER BY id
-        """,
-        model=BitcoinswitchPayment,
-    )
-
-
-async def get_bitcoinswitch_payment_by_payhash(
-    payhash: str,
-) -> Optional[BitcoinswitchPayment]:
-    return await db.fetchone(
-        "SELECT * FROM bitcoinswitch.payment WHERE payhash = :payhash",
-        {"payhash": payhash},
-    )
-
-
-async def get_bitcoinswitch_payment_by_payload(
-    payload: str,
-) -> Optional[BitcoinswitchPayment]:
-    return await db.fetchone(
-        "SELECT * FROM bitcoinswitch.payment WHERE payload = :payload",
-        {"payload": payload},
-        BitcoinswitchPayment,
-    )
-
-
-async def get_recent_bitcoinswitch_payment(
-    payload: str,
-) -> Optional[BitcoinswitchPayment]:
-    return await db.fetchone(
-        """
-        SELECT * FROM bitcoinswitch.bitcoinswitchpayment
-        WHERE payload = :payload ORDER BY timestamp DESC LIMIT 1
-        """,
-        {"payload": payload},
         BitcoinswitchPayment,
     )
