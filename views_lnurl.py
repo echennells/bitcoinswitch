@@ -120,7 +120,7 @@ async def lnurl_params(
         asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
         asset_amount = int(current_switch.amount)  # The switch's configured asset amount
         
-        logger.info(f"LNURL: Creating RFQ invoice for {asset_amount} assets to determine LNURL amounts")
+        logger.debug(f"LNURL: Creating RFQ invoice for {asset_amount} assets to determine LNURL amounts")
         
         # Get wallet info for invoice creation
         wallet = await get_wallet(switch.wallet)
@@ -156,7 +156,7 @@ async def lnurl_params(
                     resp["minSendable"] = decoded.amount_msat
                     resp["maxSendable"] = decoded.amount_msat
                     
-                    logger.info(f"LNURL: RFQ returned {rfq_sats} sats for {asset_amount} assets")
+                    logger.debug(f"LNURL: RFQ returned {rfq_sats} sats for {asset_amount} assets")
                     
                     # Store the RFQ details for validation in callback
                     bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
@@ -289,13 +289,7 @@ async def lnurl_callback(
             asset_amount = int(current_switch.amount)
             logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
         
-        logger.info(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units (not sats)")
-        
-        # RFQ Debug: Log when bitcoinswitch creates RFQ invoice
-        logger.info(f"RFQ_DEBUG: BitcoinSwitch creating RFQ invoice - Asset: {asset_id}, Amount: {asset_amount}")
-        logger.info(f"RFQ_DEBUG: Expected sat payment: {amount/1000} sats")
-        logger.info(f"RFQ_DEBUG: Payment ID: {payment_id}")
-        logger.info(f"RFQ_DEBUG: Switch ID: {switch.id}, Pin: {bitcoinswitch_payment.pin}")
+        logger.debug(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units")
         
         # Create Taproot Asset invoice using RFQ process
         # This creates an invoice for X units of the asset (with Lightning value=0)
@@ -321,7 +315,7 @@ async def lnurl_callback(
         )
         
         if taproot_result:
-            logger.info(f"RFQ invoice created successfully: {taproot_result['payment_hash']}")
+            logger.debug(f"RFQ invoice created successfully: {taproot_result['payment_hash']}")
             # Update payment record
             bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
             bitcoinswitch_payment.is_taproot = True

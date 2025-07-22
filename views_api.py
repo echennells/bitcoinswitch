@@ -112,6 +112,6 @@ async def api_bitcoinswitch_delete(bitcoinswitch_id: str):
     bitcoinswitch = await get_bitcoinswitch(bitcoinswitch_id)
     if not bitcoinswitch:
         raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND, detail="Lnurldevice does not exist."
+            status_code=HTTPStatus.NOT_FOUND, detail="Bitcoinswitch does not exist."
         )
     await delete_bitcoinswitch(bitcoinswitch_id)

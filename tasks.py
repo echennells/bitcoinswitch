@@ -26,13 +26,13 @@ async def on_invoice_paid(payment: Payment) -> None:
     is_taproot = payment.extra.get("is_taproot", False)
     
     # Log payment details for debugging
-    logger.info(f"BitcoinSwitch received payment: hash={payment.payment_hash}, is_taproot={is_taproot}, extra={payment.extra}")
+    logger.debug(f"BitcoinSwitch received payment: hash={payment.payment_hash}, is_taproot={is_taproot}")
     
     # Handle both regular and taproot payments
     if is_taproot:
         # For taproot payments, check if it's a switch payment by id
         if "id" not in payment.extra:
-            logger.info(f"Taproot payment missing 'id' in extra data: {payment.extra}")
+            logger.debug(f"Taproot payment missing 'id' in extra data")
             return
     else:
         # For regular payments, check the tag
@@ -52,7 +52,7 @@ async def on_invoice_paid(payment: Payment) -> None:
     # Password check
     comment = payment.extra.get("comment")
     if bitcoinswitch.password and bitcoinswitch.password != comment:
-        logger.info(f"Wrong password entered for bitcoin switch: {bitcoinswitch.id}")
+        logger.warning(f"Wrong password entered for bitcoin switch: {bitcoinswitch.id}")
         return
 
     # Process payment
@@ -79,7 +79,7 @@ async def on_invoice_paid(payment: Payment) -> None:
     # Log payment type
     payment_type = "Taproot Asset" if is_taproot else "Lightning"
     asset_info = f" ({payment.extra.get('asset_id')})" if is_taproot else ""
-    logger.info(f"Processing {payment_type}{asset_info} payment for switch {bitcoinswitch.id}")
+    logger.debug(f"Processing {payment_type}{asset_info} payment for switch {bitcoinswitch.id}")
 
     return await websocket_updater(
         bitcoinswitch_payment.bitcoinswitch_id,
