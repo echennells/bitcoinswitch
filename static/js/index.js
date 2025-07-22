@@ -63,7 +63,6 @@ window.app = Vue.createApp({
           title: '',
           wallet: '',
           currency: 'sat',
-          password: '',
           default_accepts_assets: false
         }
       },
@@ -362,7 +361,6 @@ window.app = Vue.createApp({
         title: '',
         wallet: '',
         currency: 'sat',
-        password: '',
         default_accepts_assets: false
       }
     },

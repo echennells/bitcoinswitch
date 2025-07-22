@@ -324,8 +324,6 @@ async def lnurl_callback(
             
             # Show asset amount in success message
             message = f"{asset_amount} units of {asset_id} requested"
-            if switch.password and switch.password != comment:
-                message = f"{message}, but password was incorrect! :("
             
             return {
                 "pr": taproot_result["payment_request"],
@@ -370,8 +368,6 @@ async def lnurl_callback(
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
     message = f"{int(amount / 1000)}sats sent"
-    if switch.password and switch.password != comment:
-        message = f"{message}, but password was incorrect! :("
 
     return {
         "pr": payment.bolt11,
