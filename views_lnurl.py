@@ -71,7 +71,7 @@ async def lnurl_params(
             and bool(_switch.comment) == bool(comment)
         ):
             check = True
-            continue
+            break
     if not check:
         return {"status": "ERROR", "reason": "Extra params wrong"}
 
