@@ -66,12 +66,8 @@ async def on_invoice_paid(payment: Payment) -> None:
         logger.info("[WEBSOCKET DEBUG] Exiting early - no bitcoinswitch found")
         return
 
-    # Password check
+    # Get comment for payload construction
     comment = payment.extra.get("comment")
-    if bitcoinswitch.password and bitcoinswitch.password != comment:
-        logger.warning(f"Wrong password entered for bitcoin switch: {bitcoinswitch.id}")
-        logger.info("[WEBSOCKET DEBUG] Exiting early - wrong password")
-        return
 
     # Process payment
     logger.info("[WEBSOCKET DEBUG] Processing payment - updating payment hash")
@@ -87,9 +83,15 @@ async def on_invoice_paid(payment: Payment) -> None:
             amount = payment.extra.get("asset_amount", int(payment.extra.get("amount", 0)))
         else:
             amount = int(payment.extra["amount"])
-        payload = str(
-            (int(payload) / int(bitcoinswitch_payment.sats)) * amount
-        )
+        
+        # Check for division by zero
+        if int(bitcoinswitch_payment.sats) == 0:
+            logger.error(f"[WEBSOCKET DEBUG] Cannot calculate variable payload - sats is 0, using amount directly")
+            payload = str(amount)
+        else:
+            payload = str(
+                (int(payload) / int(bitcoinswitch_payment.sats)) * amount
+            )
         logger.info(f"[WEBSOCKET DEBUG] Calculated variable payload: {payload}")
     
     payload = f"{bitcoinswitch_payment.pin}-{payload}"

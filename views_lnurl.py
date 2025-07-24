@@ -117,6 +117,10 @@ async def lnurl_params(
         
         # For asset-accepting switches, we need to use RFQ to determine the sat amount
         # This is the FIRST RFQ - to get min/max for LNURL response
+        if not current_switch.accepted_asset_ids:
+            logger.error(f"Asset-accepting switch has no accepted_asset_ids configured")
+            return {"status": "ERROR", "reason": "Switch is configured to accept assets but no asset IDs are specified"}
+        
         asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
         asset_amount = int(current_switch.amount)  # The switch's configured asset amount
         
@@ -324,8 +328,6 @@ async def lnurl_callback(
             
             # Show asset amount in success message
             message = f"{asset_amount} units of {asset_id} requested"
-            if switch.password and switch.password != comment:
-                message = f"{message}, but password was incorrect! :("
             
             return {
                 "pr": taproot_result["payment_request"],
@@ -370,8 +372,6 @@ async def lnurl_callback(
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
     message = f"{int(amount / 1000)}sats sent"
-    if switch.password and switch.password != comment:
-        message = f"{message}, but password was incorrect! :("
 
     return {
         "pr": payment.bolt11,

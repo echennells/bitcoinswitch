@@ -38,7 +38,6 @@ class CreateBitcoinswitch(BaseModel):
     wallet: str
     currency: str
     switches: list[Switch]
-    password: Optional[str] = None
     default_accepts_assets: bool = False
 
 
@@ -49,7 +48,6 @@ class Bitcoinswitch(BaseModel):
     currency: str
     key: str
     switches: list[Switch]
-    password: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     default_accepts_assets: bool = False

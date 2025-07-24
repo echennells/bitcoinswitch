@@ -222,14 +222,6 @@
           label="Fiat currency for device"
           :options="currency"
         ></q-select>
-        <q-input
-          filled
-          dense
-          v-model.trim="formDialog.data.password"
-          type="text"
-          label="Password (optional)"
-          tooltip="Password to protect the device, needs to be entered as comment in the LNURL"
-        ></q-input>
         <q-checkbox
           v-if="taprootAssetsAvailable"
           v-model="formDialog.data.default_accepts_assets"
