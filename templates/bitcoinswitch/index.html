@@ -307,59 +307,59 @@
               </q-checkbox>
             </div>
           </div>
-          <!-- Taproot Assets Configuration - Show only for first switch -->
-          <div class="row q-mt-md" v-if="taprootAssetsAvailable && index === 0">
-            <div class="col">
-              <q-checkbox
-                v-model="formDialog.data.accepts_assets"
-                color="primary"
-                label="Accept Taproot Assets (applies to all switches)"
-                @update:model-value="val => handleAcceptAssetsChange(val)"
-              >
-                <q-tooltip>
-                  When enabled, ALL switches in this Bitcoin Switch will accept taproot assets.
-                  The amount field will represent the number of assets (not sats/fiat) for all switches.
-                </q-tooltip>
-              </q-checkbox>
-            </div>
+        </div>
+        <!-- Taproot Assets Configuration - Now shown after all switches -->
+        <div class="row q-mt-md" v-if="taprootAssetsAvailable">
+          <div class="col">
+            <q-checkbox
+              v-model="formDialog.data.accepts_assets"
+              color="primary"
+              label="Accept Taproot Assets (applies to all switches)"
+              @update:model-value="val => handleAcceptAssetsChange(val)"
+            >
+              <q-tooltip>
+                When enabled, ALL switches in this Bitcoin Switch will accept taproot assets.
+                The amount field will represent the number of assets (not sats/fiat) for all switches.
+              </q-tooltip>
+            </q-checkbox>
           </div>
-          <div class="row q-mt-sm" v-if="formDialog.data.accepts_assets && taprootAssetsAvailable && index === 0">
-            <div class="col">
-              <q-select
-                filled
-                dense
-                multiple
-                emit-value
-                map-options
-                v-model="formDialog.data.accepted_asset_ids"
-                :options="availableAssets"
-                option-value="asset_id"
-                option-label="name"
-                label="Accepted Assets (applies to all switches)"
-                :loading="loadingAssets"
-              >
-                <template v-slot:option="scope">
-                  <q-item v-bind="scope.itemProps">
-                    <q-item-section>
-                      <q-item-label v-text="scope.opt.name"></q-item-label>
-                      <q-item-label caption v-text="scope.opt.asset_id.substring(0, 16) + '...'"></q-item-label>
-                    </q-item-section>
-                  </q-item>
-                </template>
-                <template v-slot:selected-item="scope">
-                  <q-chip
-                    removable
-                    dense
-                    @remove="scope.removeAtIndex(scope.index)"
-                    :tabindex="scope.tabindex"
-                    color="primary"
-                    text-color="white"
-                  >
-                    <span v-text="scope.opt.name"></span>
-                  </q-chip>
-                </template>
-              </q-select>
-            </div>
+        </div>
+        <div class="row q-mt-sm" v-if="formDialog.data.accepts_assets && taprootAssetsAvailable">
+          <div class="col">
+            <q-select
+              filled
+              dense
+              multiple
+              emit-value
+              map-options
+              v-model="formDialog.data.accepted_asset_ids"
+              :options="availableAssets"
+              option-value="asset_id"
+              option-label="name"
+              label="Accepted Assets (applies to all switches)"
+              :loading="loadingAssets"
+            >
+              <template v-slot:option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section>
+                    <q-item-label v-text="scope.opt.name"></q-item-label>
+                    <q-item-label caption v-text="scope.opt.asset_id.substring(0, 16) + '...'"></q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+              <template v-slot:selected-item="scope">
+                <q-chip
+                  removable
+                  dense
+                  @remove="scope.removeAtIndex(scope.index)"
+                  :tabindex="scope.tabindex"
+                  color="primary"
+                  text-color="white"
+                >
+                  <span v-text="scope.opt.name"></span>
+                </q-chip>
+              </template>
+            </q-select>
           </div>
         </div>
         <div class="row q-mt-lg">
