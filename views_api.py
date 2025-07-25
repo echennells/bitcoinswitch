@@ -87,7 +87,11 @@ async def api_bitcoinswitchs_retrieve(
     key_info: WalletTypeInfo = Depends(require_invoice_key),
 ) -> list[Bitcoinswitch]:
     user = await get_user(key_info.wallet.user)
-    assert user, "Bitcoinswitch cannot retrieve user"
+    if not user:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="User not found"
+        )
     return await get_bitcoinswitches(user.wallet_ids)
 
 
