@@ -18,6 +18,7 @@ from .crud import (
 from .services.taproot_integration import TaprootIntegration
 from .services.rate_service import RateService
 from .models import Switch, BitcoinswitchPayment
+from .services.config import config
 
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
