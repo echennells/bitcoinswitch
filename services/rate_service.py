@@ -5,13 +5,8 @@ Implements market maker functionality for LNURL + Taproot Assets.
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from loguru import logger
-import os
 
-# Configuration from environment or defaults
-RATE_TOLERANCE = float(os.getenv("BITCOINSWITCH_RATE_TOLERANCE", "0.05"))  # 5% default
-RATE_VALIDITY_MINUTES = int(os.getenv("BITCOINSWITCH_RATE_VALIDITY_MINUTES", "5"))  # 5 minutes default
-RATE_REFRESH_SECONDS = int(os.getenv("BITCOINSWITCH_RATE_REFRESH_SECONDS", "60"))  # 1 minute default
-
+from .config import config
 
 
 class RateService:
@@ -36,7 +31,7 @@ class RateService:
             # Get wallet for API key
             wallet = await get_wallet(wallet_id)
             if not wallet:
-                logger.error("Wallet not found")
+                logger.error(f"Wallet {wallet_id} not found")
                 return None
             
             # Build API URL
@@ -52,7 +47,7 @@ class RateService:
                     url,
                     params={"amount": asset_amount},
                     headers={"X-Api-Key": wallet.adminkey},
-                    timeout=10.0
+                    timeout=config.http_timeout
                 )
                 
                 if response.status_code == 200:
@@ -77,27 +72,18 @@ class RateService:
     def is_rate_within_tolerance(
         quoted_rate: float,
         current_rate: float,
-        tolerance: float = RATE_TOLERANCE
+        tolerance: float = None
     ) -> bool:
-        """
-        Check if current rate is within acceptable tolerance of quoted rate.
-        
-        Args:
-            quoted_rate: Rate at quote time (sats per asset)
-            current_rate: Current rate (sats per asset)
-            tolerance: Acceptable deviation (e.g., 0.05 = 5%)
-            
-        Returns:
-            True if within tolerance, False otherwise
-        """
+        """Check if current rate is within acceptable tolerance of quoted rate."""
         if quoted_rate <= 0:
             return False
         
+        tolerance = tolerance or config.rate_tolerance
         deviation = abs(current_rate - quoted_rate) / quoted_rate
         within_tolerance = deviation <= tolerance
         
         logger.debug(
-            f"Rate check: quoted={quoted_rate}, current={current_rate}, "
+            f"Rate check: quoted={quoted_rate:.8f}, current={current_rate:.8f}, "
             f"deviation={deviation:.2%}, tolerance={tolerance:.2%}, "
             f"within_tolerance={within_tolerance}"
         )
@@ -106,15 +92,7 @@ class RateService:
     
     @staticmethod
     def is_rate_expired(quoted_at: datetime) -> bool:
-        """
-        Check if a rate quote has expired.
-        
-        Args:
-            quoted_at: When the rate was quoted
-            
-        Returns:
-            True if expired, False if still valid
-        """
+        """Check if a rate quote has expired."""
         if not quoted_at:
             return True
         
@@ -123,11 +101,11 @@ class RateService:
             quoted_at = quoted_at.replace(tzinfo=timezone.utc)
         
         age = datetime.now(timezone.utc) - quoted_at
-        expired = age > timedelta(minutes=RATE_VALIDITY_MINUTES)
+        expired = age > timedelta(minutes=config.rate_validity_minutes)
         
         logger.debug(
             f"Rate age check: quoted_at={quoted_at}, age={age}, "
-            f"validity={RATE_VALIDITY_MINUTES}min, expired={expired}"
+            f"validity={config.rate_validity_minutes}min, expired={expired}"
         )
         
         return expired

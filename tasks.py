@@ -15,7 +15,7 @@ from .crud import (
 async def wait_for_paid_invoices():
     invoice_queue = asyncio.Queue()
     register_invoice_listener(invoice_queue, "ext_bitcoinswitch")
-    logger.info("BitcoinSwitch invoice listener registered")
+    logger.info(f"BitcoinSwitch invoice listener registered")
 
     while True:
         try:
@@ -27,23 +27,29 @@ async def wait_for_paid_invoices():
 
 async def on_invoice_paid(payment: Payment) -> None:
     is_taproot = payment.extra.get("is_taproot", False)
+    payment_id = payment.extra.get("id")
     
     # Handle both regular and taproot payments
     if is_taproot:
         if "id" not in payment.extra:
-            logger.warning("Taproot payment missing 'id' in extra data")
+            logger.warning(f"Taproot payment missing 'id' in extra data")
             return
     else:
         if payment.extra.get("tag") != "Switch":
             return
     
-    bitcoinswitch_payment = await get_bitcoinswitch_payment(payment.extra["id"])
-    if not bitcoinswitch_payment or bitcoinswitch_payment.payment_hash == "paid":
+    # Get payment and switch details
+    bitcoinswitch_payment = await get_bitcoinswitch_payment(payment_id)
+    if not bitcoinswitch_payment:
+        logger.error(f"Payment {payment_id} not found")
+        return
+    if bitcoinswitch_payment.payment_hash == "paid":
+        logger.info(f"Payment {payment_id} already processed")
         return
 
     bitcoinswitch = await get_bitcoinswitch(bitcoinswitch_payment.bitcoinswitch_id)
     if not bitcoinswitch:
-        logger.error("No bitcoinswitch found for payment")
+        logger.error(f"No bitcoinswitch found for payment {payment_id}")
         return
 
     # Process payment
@@ -59,7 +65,7 @@ async def on_invoice_paid(payment: Payment) -> None:
             amount = int(payment.extra["amount"])
         
         if int(bitcoinswitch_payment.sats) == 0:
-            logger.error("Cannot calculate variable payload - sats is 0")
+            logger.error(f"Cannot calculate variable payload for payment {payment_id} - sats is 0")
             payload = str(amount)
         else:
             payload = str((int(payload) / int(bitcoinswitch_payment.sats)) * amount)
@@ -71,10 +77,11 @@ async def on_invoice_paid(payment: Payment) -> None:
 
     # Process payment and notify
     try:
-        return await websocket_updater(
+        await websocket_updater(
             bitcoinswitch_payment.bitcoinswitch_id,
             payload,
         )
+        logger.info(f"Successfully sent switch command for payment {payment_id}")
     except Exception as e:
-        logger.error(f"Failed to update websocket: {e}")
+        logger.error(f"Failed to update websocket for payment {payment_id}: {e}")
         raise
