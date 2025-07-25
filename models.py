@@ -38,7 +38,6 @@ class CreateBitcoinswitch(BaseModel):
     wallet: str
     currency: str
     switches: list[Switch]
-    default_accepts_assets: bool = False
 
 
 class Bitcoinswitch(BaseModel):
@@ -50,7 +49,6 @@ class Bitcoinswitch(BaseModel):
     switches: list[Switch]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    default_accepts_assets: bool = False
 
     @property
     def lnurlpay_metadata(self) -> LnurlPayMetadata:

@@ -222,15 +222,6 @@
           label="Fiat currency for device"
           :options="currency"
         ></q-select>
-        <q-checkbox
-          v-if="taprootAssetsAvailable"
-          v-model="formDialog.data.default_accepts_assets"
-          color="primary"
-          label="Accept Taproot Assets by default"
-          class="q-mt-sm"
-        >
-          <q-tooltip>New switches will accept Taproot Assets by default</q-tooltip>
-        </q-checkbox>
         <q-btn
           unelevated
           class="q-mb-lg"
@@ -251,7 +242,7 @@
           v-model="formDialog.data.switches"
           color="primary"
         ></q-btn>
-        <div v-for="_switch in formDialog.data.switches">
+        <div v-for="(_switch, index) in formDialog.data.switches">
           <div class="row">
             <div class="col">
               <q-input
@@ -316,23 +307,23 @@
               </q-checkbox>
             </div>
           </div>
-          <!-- Taproot Assets Configuration -->
-          <div class="row q-mt-md" v-if="taprootAssetsAvailable">
+          <!-- Taproot Assets Configuration - Show only for first switch -->
+          <div class="row q-mt-md" v-if="taprootAssetsAvailable && index === 0">
             <div class="col">
               <q-checkbox
-                v-model="_switch.accepts_assets"
+                v-model="formDialog.data.accepts_assets"
                 color="primary"
-                label="Accept Taproot Assets"
-                @update:model-value="val => { if (!val) _switch.accepted_asset_ids = [] }"
+                label="Accept Taproot Assets (applies to all switches)"
+                @update:model-value="val => handleAcceptAssetsChange(val)"
               >
                 <q-tooltip>
-                  When enabled, the amount field represents the number of assets (not sats/fiat).
-                  The invoice will dynamically show the sat equivalent based on current market rates.
+                  When enabled, ALL switches in this Bitcoin Switch will accept taproot assets.
+                  The amount field will represent the number of assets (not sats/fiat) for all switches.
                 </q-tooltip>
               </q-checkbox>
             </div>
           </div>
-          <div class="row q-mt-sm" v-if="_switch.accepts_assets && taprootAssetsAvailable">
+          <div class="row q-mt-sm" v-if="formDialog.data.accepts_assets && taprootAssetsAvailable && index === 0">
             <div class="col">
               <q-select
                 filled
@@ -340,11 +331,11 @@
                 multiple
                 emit-value
                 map-options
-                v-model="_switch.accepted_asset_ids"
+                v-model="formDialog.data.accepted_asset_ids"
                 :options="availableAssets"
                 option-value="asset_id"
                 option-label="name"
-                label="Accepted Assets"
+                label="Accepted Assets (applies to all switches)"
                 :loading="loadingAssets"
               >
                 <template v-slot:option="scope">
@@ -368,11 +359,6 @@
                   </q-chip>
                 </template>
               </q-select>
-              <div class="text-caption text-grey q-mt-xs">
-                <q-icon name="info" size="xs" class="q-mr-xs"/>
-                The amount field above represents units of any of these selected assets.
-                The invoice will show the sat equivalent based on whichever asset the payer chooses.
-              </div>
             </div>
           </div>
         </div>
@@ -432,18 +418,19 @@
       <q-chip v-else clickable color="green" text-color="white" icon="check">
         <span v-text="wsMessage"></span>
       </q-chip>
-      <!-- Show accepted assets for current switch -->
-      <div v-if="currentSwitch && currentSwitch.accepts_assets && currentSwitch.accepted_asset_ids && currentSwitch.accepted_asset_ids.length > 0" class="q-mt-md">
-        <div class="text-subtitle2 q-mb-sm">This switch accepts Taproot Assets:</div>
+      <!-- Show accepted assets for this Bitcoin switch -->
+      <div v-if="qrCodeDialog.data && qrCodeDialog.data.switches && qrCodeDialog.data.switches.some(s => s.accepts_assets && s.accepted_asset_ids && s.accepted_asset_ids.length > 0)" class="q-mt-md">
+        <div class="text-subtitle2 q-mb-sm">This Bitcoin Switch accepts Taproot Assets:</div>
         <div class="row q-gutter-sm">
           <q-chip 
-            v-for="assetId in currentSwitch.accepted_asset_ids" 
+            v-for="assetId in (qrCodeDialog.data.switches.find(s => s.accepts_assets) || {}).accepted_asset_ids" 
             :key="assetId"
             color="purple" 
             text-color="white"
-            icon="currency_bitcoin"
+            size="sm"
+            icon="token"
           >
-            <span v-text="getAssetName(assetId)"></span>
+            {% raw %}{{ getAssetName(assetId) }}{% endraw %}
           </q-chip>
         </div>
       </div>

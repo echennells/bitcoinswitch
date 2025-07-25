@@ -63,7 +63,8 @@ window.app = Vue.createApp({
           title: '',
           wallet: '',
           currency: 'sat',
-          default_accepts_assets: false
+          accepts_assets: false,
+          accepted_asset_ids: []
         }
       },
       qrCodeDialog: {
@@ -101,13 +102,21 @@ window.app = Vue.createApp({
         pin: 0,
         duration: 1000,
         variable: false,
-        comment: false,
-        accepts_assets: this.formDialog.data.default_accepts_assets || false,
-        accepted_asset_ids: []
+        comment: false
       })
     },
     removeSwitch() {
       this.formDialog.data.switches.pop()
+    },
+    handleAcceptAssetsChange(val) {
+      if (!val) {
+        this.formDialog.data.accepted_asset_ids = []
+      }
+      // Update all existing switches to use the global setting
+      this.formDialog.data.switches.forEach(sw => {
+        sw.accepts_assets = val
+        sw.accepted_asset_ids = val ? this.formDialog.data.accepted_asset_ids : []
+      })
     },
     cancelFormDialog() {
       this.formDialog.show = false
@@ -138,7 +147,15 @@ window.app = Vue.createApp({
         }
       }
       // Ensure boolean fields are included even if false
-      updatedData.default_accepts_assets = data.default_accepts_assets || false
+      
+      // Apply global taproot settings to all switches
+      if (data.accepts_assets && data.switches) {
+        updatedData.switches = data.switches.map(sw => ({
+          ...sw,
+          accepts_assets: true,
+          accepted_asset_ids: data.accepted_asset_ids || []
+        }))
+      }
       
       LNbits.api
         .request(
@@ -164,9 +181,17 @@ window.app = Vue.createApp({
         }
       }
       // Ensure boolean fields are included even if false
-      updatedData.default_accepts_assets = data.default_accepts_assets || false
       // Always include id for update
       updatedData.id = data.id
+      
+      // Apply global taproot settings to all switches
+      if (data.accepts_assets && data.switches) {
+        updatedData.switches = data.switches.map(sw => ({
+          ...sw,
+          accepts_assets: true,
+          accepted_asset_ids: data.accepted_asset_ids || []
+        }))
+      }
       
       LNbits.api
         .request(
@@ -239,10 +264,19 @@ window.app = Vue.createApp({
         id: bitcoinswitchId
       })
       this.formDialog.data = _.clone(bitcoinswitch)
-      // Ensure default_accepts_assets is set even if missing in the data
-      if (this.formDialog.data.default_accepts_assets === undefined) {
-        this.formDialog.data.default_accepts_assets = false
+      
+      // Extract global taproot settings from switches if any switch has them
+      if (bitcoinswitch.switches && bitcoinswitch.switches.length > 0) {
+        const firstSwithWithAssets = bitcoinswitch.switches.find(sw => sw.accepts_assets)
+        if (firstSwithWithAssets) {
+          this.formDialog.data.accepts_assets = true
+          this.formDialog.data.accepted_asset_ids = firstSwithWithAssets.accepted_asset_ids || []
+        } else {
+          this.formDialog.data.accepts_assets = false
+          this.formDialog.data.accepted_asset_ids = []
+        }
       }
+      
       this.formDialog.show = true
     },
     openBitcoinswitchSettings(bitcoinswitchId) {
@@ -361,7 +395,8 @@ window.app = Vue.createApp({
         title: '',
         wallet: '',
         currency: 'sat',
-        default_accepts_assets: false
+        accepts_assets: false,
+        accepted_asset_ids: []
       }
     },
     exportCSV() {
