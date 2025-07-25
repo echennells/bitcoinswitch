@@ -116,25 +116,21 @@ async def lnurl_params(
         }
         
         # For asset-accepting switches, we need to use RFQ to determine the sat amount
-        # This is the FIRST RFQ - to get min/max for LNURL response
         if not current_switch.accepted_asset_ids:
-            logger.error(f"Asset-accepting switch has no accepted_asset_ids configured")
+            logger.error("Asset-accepting switch has no accepted_asset_ids configured")
             return {"status": "ERROR", "reason": "Switch is configured to accept assets but no asset IDs are specified"}
         
         asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
         asset_amount = int(current_switch.amount)  # The switch's configured asset amount
         
-        logger.debug(f"LNURL: Creating RFQ invoice for {asset_amount} assets to determine LNURL amounts")
-        
         # Get wallet info for invoice creation
         wallet = await get_wallet(switch.wallet)
         if wallet:
             try:
-                # Create an RFQ invoice using the same process as taproot_assets
+                # Create an invoice for the switch's asset amount
                 from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
                 from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
                 
-                # Create invoice for the switch's asset amount
                 rfq_request = TaprootInvoiceRequest(
                     asset_id=asset_id,
                     amount=asset_amount,
@@ -153,19 +149,14 @@ async def lnurl_params(
                 decoded = bolt11_decode(rfq_invoice.payment_request)
                 
                 if decoded.amount_msat:
-                    # This is the actual sat amount for the asset amount according to RFQ
-                    rfq_sats = decoded.amount_msat / 1000
-                    
                     # Set LNURL amounts based on what RFQ returned
                     resp["minSendable"] = decoded.amount_msat
                     resp["maxSendable"] = decoded.amount_msat
                     
-                    logger.debug(f"LNURL: RFQ returned {rfq_sats} sats for {asset_amount} assets")
-                    
                     # Store the RFQ details for validation in callback
                     bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
                     bitcoinswitch_payment.rfq_asset_amount = asset_amount
-                    bitcoinswitch_payment.rfq_sat_amount = rfq_sats
+                    bitcoinswitch_payment.rfq_sat_amount = decoded.amount_msat / 1000
                     await update_bitcoinswitch_payment(bitcoinswitch_payment)
                 else:
                     logger.warning("RFQ invoice has no amount, falling back to price_msat")
@@ -214,12 +205,9 @@ async def lnurl_callback(
     # Check if this switch is configured for taproot assets
     # If the switch accepts assets, ALWAYS create an asset invoice, regardless of callback parameters
     if is_asset_enabled_switch(current_switch) and await TaprootIntegration.is_taproot_available():
-        
         # If no asset_id provided in callback, use the first accepted asset
-        # This ensures asset-configured switches ONLY create asset invoices
         if not asset_id or asset_id not in current_switch.accepted_asset_ids:
             asset_id = current_switch.accepted_asset_ids[0]
-            logger.debug(f"No valid asset_id in callback, using configured asset: {asset_id}")
     
     # Check if we should create a Taproot Asset invoice
     if (is_asset_enabled_switch(current_switch) and 
@@ -246,7 +234,6 @@ async def lnurl_callback(
                 }
             
             # Get current rate and check tolerance
-            # Use the same asset amount that was quoted
             current_rate = await RateService.get_current_rate(
                 asset_id=asset_id,
                 wallet_id=switch.wallet,
@@ -271,33 +258,26 @@ async def lnurl_callback(
                 logger.warning(f"Could not verify current rate for asset {asset_id}")
                 # Continue anyway - let RFQ handle it
         
-        # This is the SECOND RFQ - create the actual invoice
-        # The amount parameter from the wallet tells us how many sats they want to pay
+        # Calculate asset amount from requested sats
         requested_sats = amount / 1000
         
-        # We stored the RFQ rate from the first invoice
+        # Use RFQ rate from first invoice if available
         if (hasattr(bitcoinswitch_payment, 'rfq_sat_amount') and 
             hasattr(bitcoinswitch_payment, 'rfq_asset_amount') and
             bitcoinswitch_payment.rfq_sat_amount is not None and
             bitcoinswitch_payment.rfq_asset_amount is not None and
             bitcoinswitch_payment.rfq_asset_amount > 0):
-            # Calculate the rate from the first RFQ
+            # Calculate the rate and asset amount from the first RFQ
             rate_per_asset = bitcoinswitch_payment.rfq_sat_amount / bitcoinswitch_payment.rfq_asset_amount
-            # Calculate how many assets for the requested sats
             asset_amount = int(requested_sats / rate_per_asset)
             if asset_amount < 1:
                 asset_amount = 1
-            logger.debug(f"Using RFQ rate {rate_per_asset} sats/asset: {requested_sats} sats = {asset_amount} assets")
         else:
             # Fallback to switch configuration if no RFQ data
             asset_amount = int(current_switch.amount)
             logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
         
-        logger.debug(f"Creating RFQ invoice for asset {asset_id}, amount={asset_amount} asset units")
-        
         # Create Taproot Asset invoice using RFQ process
-        # This creates an invoice for X units of the asset (with Lightning value=0)
-        # The invoice can be paid with sats through RFQ conversion at market rate
         taproot_result = await TaprootIntegration.create_rfq_invoice(
             asset_id=asset_id,
             amount=asset_amount,  # Asset units, not sats
@@ -315,39 +295,30 @@ async def lnurl_callback(
                 "asset_amount": str(asset_amount)  # Store asset amount for reference
             },
             expiry=3600  # 1 hour expiry
-            # Don't pass peer_pubkey - let RFQ find any available peer
         )
         
         if taproot_result:
-            logger.debug(f"RFQ invoice created successfully: {taproot_result['payment_hash']}")
             # Update payment record
             bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
             bitcoinswitch_payment.is_taproot = True
             bitcoinswitch_payment.asset_id = asset_id
             await update_bitcoinswitch_payment(bitcoinswitch_payment)
             
-            # Show asset amount in success message
-            message = f"{asset_amount} units of {asset_id} requested"
-            
             return {
                 "pr": taproot_result["payment_request"],
                 "successAction": {
                     "tag": "message",
-                    "message": message,
+                    "message": f"{asset_amount} units of {asset_id} requested",
                 },
                 "routes": [],
             }
         else:
-            logger.error("Failed to create RFQ invoice - taproot_result is None")
+            logger.error("Failed to create RFQ invoice")
             return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
     
     # Check if this switch is configured for assets
     # If it is, we should NEVER create a regular Lightning invoice
     if is_asset_enabled_switch(current_switch):
-        # This is an asset-configured switch but we're here because:
-        # 1. Taproot integration is not available, OR
-        # 2. No valid asset_id was provided
-        # In either case, we should fail rather than create a regular invoice
         return {
             "status": "ERROR", 
             "reason": "This switch only accepts Taproot Asset payments. Please use a wallet that supports Taproot Assets."
@@ -371,13 +342,11 @@ async def lnurl_callback(
     bitcoinswitch_payment.payment_hash = payment.payment_hash
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
-    message = f"{int(amount / 1000)}sats sent"
-
     return {
         "pr": payment.bolt11,
         "successAction": {
             "tag": "message",
-            "message": message,
+            "message": f"{int(amount / 1000)}sats sent",
         },
         "routes": [],
     }
