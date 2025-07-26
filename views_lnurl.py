@@ -152,7 +152,7 @@ async def validate_taproot_payment(
 
 
 @bitcoinswitch_lnurl_router.get(
-    "{bitcoinswitch_id}",
+    "/{bitcoinswitch_id}",
     status_code=HTTPStatus.OK,
     name="bitcoinswitch.lnurl_params",
 )

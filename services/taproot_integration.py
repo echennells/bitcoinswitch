@@ -37,7 +37,7 @@ class TaprootIntegration:
                     message="Taproot Assets extension is not installed or not active",
                     details={"installed_extensions": [ext.id for ext in extensions]}
                 )
-                
+            
             return True, None
             
         except Exception as e:
