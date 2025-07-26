@@ -412,8 +412,8 @@ async def lnurl_callback(
                 requested_sats = amount / 1000
                 
                 # Calculate asset amount
-                if (hasattr(bitcoinswitch_payment, 'rfq_sat_amount') and 
-                    hasattr(bitcoinswitch_payment, 'rfq_asset_amount') and
+                if (hasattr(bitcoinswitch_payment, "rfq_sat_amount") and 
+                    hasattr(bitcoinswitch_payment, "rfq_asset_amount") and
                     bitcoinswitch_payment.rfq_sat_amount is not None and
                     bitcoinswitch_payment.rfq_asset_amount is not None and
                     bitcoinswitch_payment.rfq_asset_amount > 0):
@@ -506,4 +506,5 @@ async def lnurl_callback(
             "reason": "An unexpected error occurred",
             "code": "INTERNAL_ERROR",
             "details": {"error": str(e)}
-        }</file_text>
+        }
+EOL 2>&1
