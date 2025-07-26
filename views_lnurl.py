@@ -213,9 +213,9 @@ async def lnurl_params(
                 else:
                     logger.warning("RFQ invoice has no amount, falling back to price_msat")
                     
-                except Exception as e:
-                    logger.error(f"Failed to create RFQ invoice for LNURL: {e}")
-                    # Fall back to original price_msat if RFQ fails
+            except Exception as e:
+                logger.error(f"Failed to create RFQ invoice for LNURL: {e}")
+                # Fall back to original price_msat if RFQ fails
     
     if comment:
         resp["commentAllowed"] = 1500
