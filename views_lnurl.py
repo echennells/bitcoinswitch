@@ -147,7 +147,7 @@ async def lnurl_params(
         "callback": f"{url}?variable={variable}",
         "minSendable": price_msat,
         "maxSendable": price_msat,
-        "commentAllowed": 255,
+        "commentAllowed": config.max_comment_length,
         "metadata": switch.lnurlpay_metadata,
     }
     
@@ -187,7 +187,7 @@ async def lnurl_params(
                     asset_id=asset_id,
                     amount=asset_amount,
                     description=f"{switch.title} - LNURL rate check",
-                    expiry=300  # 5 minutes
+                    expiry=config.taproot_quote_expiry  # RFQ quote expiry
                 )
                 
                 rfq_invoice = await InvoiceService.create_invoice(
@@ -218,7 +218,7 @@ async def lnurl_params(
                 # Fall back to original price_msat if RFQ fails
     
     if comment:
-        resp["commentAllowed"] = 1500
+        resp["commentAllowed"] = config.max_comment_length
     if variable is True:
         resp["maxSendable"] = price_msat * 360
     return resp
@@ -349,7 +349,7 @@ async def lnurl_callback(
             "payload": bitcoinswitch_payment.payload,
             "asset_amount": str(asset_amount)
         },
-        expiry=3600  # 1 hour expiry
+        expiry=config.taproot_payment_expiry  # Payment invoice expiry
     )
     
     if not taproot_result or taproot_error:
