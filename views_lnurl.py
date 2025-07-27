@@ -1,8 +1,16 @@
+"""
+LNURL endpoints for Bitcoin Switch with Taproot Assets support.
+
+This module handles LNURL payment flows for both standard Lightning Network
+payments and Taproot Asset payments. It includes RFQ (Request for Quote)
+functionality for asset pricing and payment processing.
+"""
 from http import HTTPStatus
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple, Union, Any
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi.responses import JSONResponse
 from lnbits.core.services import create_invoice
 from lnbits.core.crud import get_wallet
 from lnbits.utils.exchange_rates import fiat_amount_as_satoshis
@@ -20,17 +28,56 @@ from .services.rate_service import RateService
 from .models import Switch, BitcoinswitchPayment
 from .services.config import config
 
+# Router for LNURL endpoints
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
 
 def is_asset_enabled_switch(switch: Optional[Switch]) -> bool:
-    """Check if a switch is configured to accept taproot assets."""
-    return (
-        switch is not None and
+    """
+    Check if a switch is configured to accept Taproot Assets.
+
+    Args:
+        switch: The switch configuration to check
+
+    Returns:
+        bool: True if the switch accepts Taproot Assets and has asset IDs configured
+    """
+    return bool(
+        switch and
         switch.accepts_assets and
-        switch.accepted_asset_ids and
-        len(switch.accepted_asset_ids) > 0
+        switch.accepted_asset_ids
     )
+
+
+async def validate_switch_params(
+    switch: Any,
+    pin: int,
+    duration: int,
+    variable: bool,
+    comment: bool
+) -> bool:
+    """
+    Validate switch parameters match configuration.
+
+    Args:
+        switch: Switch configuration
+        pin: GPIO pin number
+        duration: Activation duration
+        variable: Variable time flag
+        comment: Comment enabled flag
+
+    Returns:
+        bool: True if parameters are valid
+    """
+    for _switch in switch.switches:
+        if (
+            _switch.pin == pin and
+            _switch.duration == duration and
+            bool(_switch.variable) == bool(variable) and
+            bool(_switch.comment) == bool(comment)
+        ):
+            return True
+    return False
 
 
 async def validate_taproot_payment(
@@ -41,31 +88,43 @@ async def validate_taproot_payment(
     bitcoinswitch_payment: BitcoinswitchPayment,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Validate taproot payment requirements.
-    Returns (is_valid, error_message if invalid)
+    Validate Taproot Asset payment requirements.
+
+    Checks if:
+    - Switch accepts assets
+    - Taproot is available
+    - Asset ID is valid
+    - Rate quote is valid and within tolerance
+
+    Args:
+        current_switch: Switch configuration
+        asset_id: Taproot Asset ID
+        switch_wallet: Wallet ID
+        user_id: User ID
+        bitcoinswitch_payment: Payment record
+
+    Returns:
+        Tuple[bool, Optional[str]]: (is_valid, error_message if invalid)
     """
-    # Check if this switch can accept taproot assets
+    # Verify basic requirements
     if not is_asset_enabled_switch(current_switch):
         return False, None
 
-    # Verify taproot is available
     if not await TaprootIntegration.is_taproot_available():
         return False, None
 
-    # Verify asset_id is accepted
     if not asset_id or asset_id not in current_switch.accepted_asset_ids:
         return False, "Invalid asset ID for this switch"
 
-    # Check rate quotes if they exist
-    if (bitcoinswitch_payment.quoted_rate and 
-        bitcoinswitch_payment.quoted_at and
-        bitcoinswitch_payment.asset_amount):
-        
-        # Check if quote has expired
+    # Check rate quote validity
+    if all([
+        bitcoinswitch_payment.quoted_rate,
+        bitcoinswitch_payment.quoted_at,
+        bitcoinswitch_payment.asset_amount
+    ]):
         if RateService.is_rate_expired(bitcoinswitch_payment.quoted_at):
             return False, "Price quote has expired. Please scan the QR code again for current pricing."
         
-        # Get current rate and check tolerance
         current_rate = await RateService.get_current_rate(
             asset_id=asset_id,
             wallet_id=switch_wallet,
@@ -73,14 +132,21 @@ async def validate_taproot_payment(
             asset_amount=bitcoinswitch_payment.asset_amount
         )
         
-        if current_rate:
-            if not RateService.is_rate_within_tolerance(
-                bitcoinswitch_payment.quoted_rate,
-                current_rate
-            ):
-                return False, "Exchange rate has changed significantly. Please scan the QR code again for current pricing."
+        if current_rate and not RateService.is_rate_within_tolerance(
+            bitcoinswitch_payment.quoted_rate,
+            current_rate
+        ):
+            return False, "Exchange rate has changed significantly. Please scan the QR code again for current pricing."
     
     return True, None
+
+
+def create_error_response(message: str, status_code: int = HTTPStatus.BAD_REQUEST) -> JSONResponse:
+    """Create standardized error response."""
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ERROR", "reason": message}
+    )
 
 
 @bitcoinswitch_lnurl_router.get(
@@ -96,132 +162,175 @@ async def lnurl_params(
     duration: str,
     variable: bool = Query(None),
     comment: bool = Query(None),
-):
+) -> JSONResponse:
+    """
+    Handle initial LNURL parameter request.
+    
+    Creates payment record and returns LNURL response with payment options.
+    Supports both standard Lightning and Taproot Asset payments.
+    """
+    # Validate switch exists
     switch = await get_bitcoinswitch(bitcoinswitch_id)
     if not switch:
-        return {
-            "status": "ERROR",
-            "reason": f"bitcoinswitch {bitcoinswitch_id} not found on this server",
-        }
-
-    price_msat = int(
-        (
-            await fiat_amount_as_satoshis(float(amount), switch.currency)
-            if switch.currency != "sat"
-            else float(amount)
+        return create_error_response(
+            f"Bitcoin Switch {bitcoinswitch_id} not found",
+            HTTPStatus.NOT_FOUND
         )
-        * 1000
-    )
 
-    # Check they're not trying to trick the switch!
-    check = False
-    for _switch in switch.switches:
-        if (
-            _switch.pin == int(pin)
-            and _switch.duration == int(duration)
-            and bool(_switch.variable) == bool(variable)
-            and bool(_switch.comment) == bool(comment)
-        ):
-            check = True
-            break
-    if not check:
-        return {"status": "ERROR", "reason": "Extra params wrong"}
+    try:
+        # Calculate payment amount
+        price_msat = int(
+            (
+                await fiat_amount_as_satoshis(float(amount), switch.currency)
+                if switch.currency != "sat"
+                else float(amount)
+            )
+            * 1000
+        )
+    except ValueError as e:
+        logger.error(f"Invalid amount format: {amount}", error=str(e))
+        return create_error_response("Invalid amount format")
 
+    # Validate parameters
+    try:
+        pin_int = int(pin)
+        duration_int = int(duration)
+    except ValueError:
+        return create_error_response("Invalid pin or duration format")
+
+    if not await validate_switch_params(switch, pin_int, duration_int, variable, comment):
+        return create_error_response("Invalid switch parameters")
+
+    # Create payment record
     bitcoinswitch_payment = await create_bitcoinswitch_payment(
         bitcoinswitch_id=switch.id,
         payload=duration,
         amount_msat=price_msat,
-        pin=int(pin),
+        pin=pin_int,
         payment_hash="not yet set",
     )
     if not bitcoinswitch_payment:
-        return {"status": "ERROR", "reason": "Could not create payment."}
+        return create_error_response("Failed to create payment record")
 
-    url = str(
+    # Build basic LNURL response
+    callback_url = str(
         request.url_for(
-            "bitcoinswitch.lnurl_callback", payment_id=bitcoinswitch_payment.id
+            "bitcoinswitch.lnurl_callback",
+            payment_id=bitcoinswitch_payment.id
         )
     )
+    
     resp = {
         "tag": "payRequest",
-        "callback": f"{url}?variable={variable}",
+        "callback": f"{callback_url}?variable={variable}",
         "minSendable": price_msat,
         "maxSendable": price_msat,
         "commentAllowed": config.max_comment_length,
         "metadata": switch.lnurlpay_metadata,
     }
-    
-    # Check if switch accepts assets and taproot is available
-    current_switch = None
-    for s in switch.switches:
-        if s.pin == int(pin):
-            current_switch = s
-            break
+
+    # Handle Taproot Asset support
+    current_switch = next(
+        (s for s in switch.switches if s.pin == pin_int),
+        None
+    )
     
     if is_asset_enabled_switch(current_switch) and await TaprootIntegration.is_taproot_available():
-        resp["acceptsAssets"] = True
-        resp["acceptedAssetIds"] = current_switch.accepted_asset_ids
-        resp["assetMetadata"] = {
-            "supportsRfq": True,
-            "message": "This switch accepts Taproot Assets via RFQ - pay with either sats or assets",
-            "rfqEnabled": True
-        }
-        
-        # For asset-accepting switches, we need to use RFQ to determine the sat amount
-        if not current_switch.accepted_asset_ids:
-            logger.error("Asset-accepting switch has no accepted_asset_ids configured")
-            return {"status": "ERROR", "reason": "Switch is configured to accept assets but no asset IDs are specified"}
-        
-        asset_id = current_switch.accepted_asset_ids[0]  # Use first accepted asset
-        asset_amount = int(current_switch.amount)  # The switch's configured asset amount
-        
-        # Get wallet info for invoice creation
-        wallet = await get_wallet(switch.wallet)
-        if wallet:
-            try:
-                # Create an invoice for the switch's asset amount
-                from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
-                from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
-                
-                rfq_request = TaprootInvoiceRequest(
-                    asset_id=asset_id,
-                    amount=asset_amount,
-                    description=f"{switch.title} - LNURL rate check",
-                    expiry=config.taproot_quote_expiry  # RFQ quote expiry
-                )
-                
-                rfq_invoice = await InvoiceService.create_invoice(
-                    data=rfq_request,
-                    user_id=wallet.user,
-                    wallet_id=switch.wallet
-                )
-                
-                # Decode the invoice to get the sat amount that RFQ determined
-                from lnbits.bolt11 import decode as bolt11_decode
-                decoded = bolt11_decode(rfq_invoice.payment_request)
-                
-                if decoded.amount_msat:
-                    # Set LNURL amounts based on what RFQ returned
-                    resp["minSendable"] = decoded.amount_msat
-                    resp["maxSendable"] = decoded.amount_msat
-                    
-                    # Store the RFQ details for validation in callback
-                    bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
-                    bitcoinswitch_payment.rfq_asset_amount = asset_amount
-                    bitcoinswitch_payment.rfq_sat_amount = decoded.amount_msat / 1000
-                    await update_bitcoinswitch_payment(bitcoinswitch_payment)
-                else:
-                    logger.warning("RFQ invoice has no amount, falling back to price_msat")
-                    
-            except Exception as e:
-                logger.error(f"Failed to create RFQ invoice for LNURL: {e}")
-                # Fall back to original price_msat if RFQ fails
-    
+        await handle_taproot_params(
+            switch=switch,
+            current_switch=current_switch,
+            bitcoinswitch_payment=bitcoinswitch_payment,
+            resp=resp
+        )
+
+    # Add optional parameters
     if comment:
         resp["commentAllowed"] = config.max_comment_length
     if variable is True:
         resp["maxSendable"] = price_msat * 360
-    return resp
+
+    return JSONResponse(content=resp)
+
+
+async def handle_taproot_params(
+    switch: Any,
+    current_switch: Switch,
+    bitcoinswitch_payment: BitcoinswitchPayment,
+    resp: Dict[str, Any]
+) -> None:
+    """Handle Taproot Asset specific LNURL parameters."""
+    resp["acceptsAssets"] = True
+    resp["acceptedAssetIds"] = current_switch.accepted_asset_ids
+    resp["assetMetadata"] = {
+        "supportsRfq": True,
+        "message": "This switch accepts Taproot Assets via RFQ - pay with either sats or assets",
+        "rfqEnabled": True
+    }
+
+    # Verify asset configuration
+    if not current_switch.accepted_asset_ids:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Switch is configured to accept assets but no asset IDs are specified"
+        )
+
+    wallet = await get_wallet(switch.wallet)
+    if not wallet:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="Wallet not found"
+        )
+
+    try:
+        await handle_rfq_quote(
+            switch=switch,
+            current_switch=current_switch,
+            wallet=wallet,
+            bitcoinswitch_payment=bitcoinswitch_payment,
+            resp=resp
+        )
+    except Exception as e:
+        logger.error("Failed to create RFQ quote", error=str(e))
+        # Continue with original price_msat
+
+
+async def handle_rfq_quote(
+    switch: Any,
+    current_switch: Switch,
+    wallet: Any,
+    bitcoinswitch_payment: BitcoinswitchPayment,
+    resp: Dict[str, Any]
+) -> None:
+    """Handle RFQ quote creation for Taproot Asset payments."""
+    from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
+    from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
+    from lnbits.bolt11 import decode as bolt11_decode
+
+    asset_id = current_switch.accepted_asset_ids[0]
+    asset_amount = int(current_switch.amount)
+
+    rfq_request = TaprootInvoiceRequest(
+        asset_id=asset_id,
+        amount=asset_amount,
+        description=f"{switch.title} - LNURL rate check",
+        expiry=config.taproot_quote_expiry
+    )
+
+    rfq_invoice = await InvoiceService.create_invoice(
+        data=rfq_request,
+        user_id=wallet.user,
+        wallet_id=switch.wallet
+    )
+
+    decoded = bolt11_decode(rfq_invoice.payment_request)
+    if decoded.amount_msat:
+        resp["minSendable"] = decoded.amount_msat
+        resp["maxSendable"] = decoded.amount_msat
+
+        bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
+        bitcoinswitch_payment.rfq_asset_amount = asset_amount
+        bitcoinswitch_payment.rfq_sat_amount = decoded.amount_msat / 1000
+        await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
 
 @bitcoinswitch_lnurl_router.get(
@@ -235,107 +344,150 @@ async def lnurl_callback(
     amount: int = Query(None),
     comment: str = Query(None),
     asset_id: Optional[str] = Query(None),
-):
+) -> JSONResponse:
+    """
+    Handle LNURL callback request.
+    
+    Creates Lightning invoice or Taproot Asset invoice based on payment type.
+    Supports variable time calculations and comments.
+    """
+    # Validate payment exists
     bitcoinswitch_payment = await get_bitcoinswitch_payment(payment_id)
     if not bitcoinswitch_payment:
-        return {"status": "ERROR", "reason": "bitcoinswitchpayment not found."}
+        return create_error_response("Payment not found", HTTPStatus.NOT_FOUND)
+
+    # Validate switch exists
     switch = await get_bitcoinswitch(bitcoinswitch_payment.bitcoinswitch_id)
     if not switch:
         await delete_bitcoinswitch_payment(payment_id)
-        return {"status": "ERROR", "reason": "bitcoinswitch not found."}
+        return create_error_response("Bitcoin Switch not found", HTTPStatus.NOT_FOUND)
 
     if not amount:
-        return {"status": "ERROR", "reason": "No amount"}
-    
-    # Get the switch configuration to check asset support
-    current_switch = None
-    for s in switch.switches:
-        if s.pin == bitcoinswitch_payment.pin:
-            current_switch = s
-            break
-    
-    # Get wallet info early as we need it for both paths
-    wallet = await get_wallet(switch.wallet)
-    if not wallet:
-        return {"status": "ERROR", "reason": "Wallet not found"}
+        return create_error_response("No amount provided")
 
-    # If no asset_id provided but switch accepts assets, use first accepted asset
-    if (is_asset_enabled_switch(current_switch) and 
-        await TaprootIntegration.is_taproot_available() and
-        (not asset_id or asset_id not in current_switch.accepted_asset_ids)):
-        asset_id = current_switch.accepted_asset_ids[0]
-    
-    # Validate taproot payment requirements
-    is_valid, error_message = await validate_taproot_payment(
-        current_switch=current_switch,
-        asset_id=asset_id,
-        switch_wallet=switch.wallet,
-        user_id=wallet.user,
-        bitcoinswitch_payment=bitcoinswitch_payment
+    # Get switch configuration
+    current_switch = next(
+        (s for s in switch.switches if s.pin == bitcoinswitch_payment.pin),
+        None
     )
 
-    # Handle non-valid taproot cases
-    if not is_valid:
-        if error_message:
-            return {"status": "ERROR", "reason": error_message}
-            
-        # If switch only accepts assets, error out
-        if is_asset_enabled_switch(current_switch):
-            return {
-                "status": "ERROR", 
-                "reason": "This switch only accepts Taproot Asset payments. Please use a wallet that supports Taproot Assets."
-            }
-            
-        # Otherwise fall through to regular Lightning payment
-        payment = await create_invoice(
-            wallet_id=switch.wallet,
-            amount=int(amount / 1000),
-            memo=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
-            unhashed_description=switch.lnurlpay_metadata.encode(),
-            extra={
-                "tag": "Switch",
-                "pin": str(bitcoinswitch_payment.pin),
-                "amount": str(int(amount)),
-                "comment": comment,
-                "variable": variable,
-                "id": payment_id,
-            },
+    # Get wallet
+    wallet = await get_wallet(switch.wallet)
+    if not wallet:
+        return create_error_response("Wallet not found", HTTPStatus.NOT_FOUND)
+
+    # Handle Taproot Asset payments
+    if (is_asset_enabled_switch(current_switch) and 
+        await TaprootIntegration.is_taproot_available()):
+        
+        # Use first accepted asset if none specified
+        if not asset_id or asset_id not in current_switch.accepted_asset_ids:
+            asset_id = current_switch.accepted_asset_ids[0]
+
+        # Validate Taproot payment
+        is_valid, error_message = await validate_taproot_payment(
+            current_switch=current_switch,
+            asset_id=asset_id,
+            switch_wallet=switch.wallet,
+            user_id=wallet.user,
+            bitcoinswitch_payment=bitcoinswitch_payment
         )
-        bitcoinswitch_payment.payment_hash = payment.payment_hash
-        await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
-        return {
-            "pr": payment.bolt11,
-            "successAction": {
-                "tag": "message",
-                "message": f"{int(amount / 1000)}sats sent",
-            },
-            "routes": [],
-        }
+        if not is_valid:
+            if error_message:
+                return create_error_response(error_message)
+            
+            if is_asset_enabled_switch(current_switch):
+                return create_error_response(
+                    "This switch only accepts Taproot Asset payments. "
+                    "Please use a wallet that supports Taproot Assets."
+                )
+        else:
+            return await handle_taproot_payment(
+                switch=switch,
+                current_switch=current_switch,
+                bitcoinswitch_payment=bitcoinswitch_payment,
+                wallet=wallet,
+                amount=amount,
+                asset_id=asset_id,
+                comment=comment,
+                variable=variable,
+                payment_id=payment_id
+            )
 
-    # Handle valid taproot payment
+    # Handle standard Lightning payment
+    return await handle_lightning_payment(
+        switch=switch,
+        bitcoinswitch_payment=bitcoinswitch_payment,
+        amount=amount,
+        comment=comment,
+        variable=variable,
+        payment_id=payment_id
+    )
+
+
+async def handle_lightning_payment(
+    switch: Any,
+    bitcoinswitch_payment: BitcoinswitchPayment,
+    amount: int,
+    comment: Optional[str],
+    variable: bool,
+    payment_id: str
+) -> JSONResponse:
+    """Handle standard Lightning Network payment."""
+    payment = await create_invoice(
+        wallet_id=switch.wallet,
+        amount=int(amount / 1000),
+        memo=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
+        unhashed_description=switch.lnurlpay_metadata.encode(),
+        extra={
+            "tag": "Switch",
+            "pin": str(bitcoinswitch_payment.pin),
+            "amount": str(int(amount)),
+            "comment": comment,
+            "variable": variable,
+            "id": payment_id,
+        },
+    )
+
+    bitcoinswitch_payment.payment_hash = payment.payment_hash
+    await update_bitcoinswitch_payment(bitcoinswitch_payment)
+
+    return JSONResponse(content={
+        "pr": payment.bolt11,
+        "successAction": {
+            "tag": "message",
+            "message": f"{int(amount / 1000)}sats sent",
+        },
+        "routes": [],
+    })
+
+
+async def handle_taproot_payment(
+    switch: Any,
+    current_switch: Switch,
+    bitcoinswitch_payment: BitcoinswitchPayment,
+    wallet: Any,
+    amount: int,
+    asset_id: str,
+    comment: Optional[str],
+    variable: bool,
+    payment_id: str
+) -> JSONResponse:
+    """Handle Taproot Asset payment."""
     requested_sats = amount / 1000
     
-    # Calculate asset amount - use RFQ rate if available
-    if (hasattr(bitcoinswitch_payment, 'rfq_sat_amount') and 
-        hasattr(bitcoinswitch_payment, 'rfq_asset_amount') and
-        bitcoinswitch_payment.rfq_sat_amount is not None and
-        bitcoinswitch_payment.rfq_asset_amount is not None and
-        bitcoinswitch_payment.rfq_asset_amount > 0):
-        # Calculate from RFQ
-        rate_per_asset = bitcoinswitch_payment.rfq_sat_amount / bitcoinswitch_payment.rfq_asset_amount
-        asset_amount = int(requested_sats / rate_per_asset)
-        if asset_amount < 1:
-            asset_amount = 1
-    else:
-        # Fallback to switch configuration
-        asset_amount = int(current_switch.amount)
-        logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
-    
+    # Calculate asset amount
+    asset_amount = calculate_asset_amount(
+        bitcoinswitch_payment=bitcoinswitch_payment,
+        requested_sats=requested_sats,
+        current_switch=current_switch
+    )
+
     # Create Taproot Asset invoice
     taproot_result, taproot_error = await TaprootIntegration.create_rfq_invoice(
         asset_id=asset_id,
-        amount=asset_amount,  # Asset units, not sats
+        amount=asset_amount,
         description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
         wallet_id=switch.wallet,
         user_id=wallet.user,
@@ -349,24 +501,46 @@ async def lnurl_callback(
             "payload": bitcoinswitch_payment.payload,
             "asset_amount": str(asset_amount)
         },
-        expiry=config.taproot_payment_expiry  # Payment invoice expiry
+        expiry=config.taproot_payment_expiry
     )
-    
+
     if not taproot_result or taproot_error:
-        logger.error(f"Failed to create RFQ invoice: {taproot_error}")
-        return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
+        logger.error("Failed to create RFQ invoice", error=taproot_error)
+        return create_error_response("Failed to create Taproot Asset invoice")
 
     # Update payment record
     bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
     bitcoinswitch_payment.is_taproot = True
     bitcoinswitch_payment.asset_id = asset_id
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
-    
-    return {
+
+    return JSONResponse(content={
         "pr": taproot_result["payment_request"],
         "successAction": {
             "tag": "message",
             "message": f"{asset_amount} units of {asset_id} requested",
         },
         "routes": [],
-    }
+    })
+
+
+def calculate_asset_amount(
+    bitcoinswitch_payment: BitcoinswitchPayment,
+    requested_sats: float,
+    current_switch: Switch
+) -> int:
+    """Calculate asset amount based on RFQ rate or switch configuration."""
+    if all([
+        hasattr(bitcoinswitch_payment, 'rfq_sat_amount'),
+        hasattr(bitcoinswitch_payment, 'rfq_asset_amount'),
+        bitcoinswitch_payment.rfq_sat_amount is not None,
+        bitcoinswitch_payment.rfq_asset_amount is not None,
+        bitcoinswitch_payment.rfq_asset_amount > 0
+    ]):
+        rate_per_asset = bitcoinswitch_payment.rfq_sat_amount / bitcoinswitch_payment.rfq_asset_amount
+        asset_amount = int(requested_sats / rate_per_asset)
+        return max(1, asset_amount)
+    else:
+        asset_amount = int(current_switch.amount)
+        logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
+        return asset_amount
