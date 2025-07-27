@@ -333,7 +333,7 @@ async def lnurl_callback(
         logger.warning(f"No RFQ rate data, using switch config: {asset_amount} assets")
     
     # Create Taproot Asset invoice
-    taproot_result = await TaprootIntegration.create_rfq_invoice(
+    taproot_result, taproot_error = await TaprootIntegration.create_rfq_invoice(
         asset_id=asset_id,
         amount=asset_amount,  # Asset units, not sats
         description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
@@ -352,8 +352,8 @@ async def lnurl_callback(
         expiry=3600  # 1 hour expiry
     )
     
-    if not taproot_result:
-        logger.error("Failed to create RFQ invoice")
+    if not taproot_result or taproot_error:
+        logger.error(f"Failed to create RFQ invoice: {taproot_error}")
         return {"status": "ERROR", "reason": "Failed to create taproot asset invoice"}
 
     # Update payment record
