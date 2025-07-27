@@ -59,11 +59,13 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 ## Links
 - [Original Bitcoin Switch Demo](https://bitcoinswitch.lnbits.com)
 - [Video Tutorial](https://www.youtube.com/@makerbits7700)
-- [Support Group](https://t.me/makerbits)
+
+## Support
+For support, please [open an issue on GitHub](https://github.com/lnbits/bitcoinswitch/issues).
 
 ## Credits
 - Original Authors: Ben Arc, DNI
-- Taproot Assets Integration: [Your Team/Name]
+- Taproot Assets Integration: Eric Chennells
 - Based on [Original Bitcoin Switch](https://github.com/lnbits/bitcoinSwitch)
 
 ## License
