@@ -146,5 +146,4 @@ class TaprootIntegration:
                 details={"error": str(e)}
             )
             logger.error(str(error))
-            return None, error</file_text>
-</invoke>
+            return None, error
