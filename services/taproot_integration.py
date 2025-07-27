@@ -1,31 +1,83 @@
-"""Integration with Taproot Assets extension."""
-from typing import Optional, Dict, Any, Tuple
+"""
+Integration service for Taproot Assets extension functionality.
+
+This module provides integration with the LNbits Taproot Assets extension,
+handling availability checks and invoice creation through RFQ (Request for Quote).
+It manages the interaction between BitcoinSwitch and the Taproot Assets extension,
+ensuring proper error handling and validation.
+
+Key features:
+- Taproot Assets extension availability checks
+- RFQ invoice creation for asset payments
+- Structured error handling with detailed error reporting
+"""
+# Standard library imports
 from dataclasses import dataclass
+from typing import Optional, Dict, Any, Tuple
+
+# Third-party imports
 from loguru import logger
+
+# LNbits imports
 from lnbits.core.crud import get_installed_extensions
+from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
+from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
 
 
 @dataclass
 class TaprootError:
-    """Error class for Taproot integration errors."""
+    """
+    Error class for structured Taproot integration error reporting.
+    
+    Attributes:
+        code: Machine-readable error code for programmatic handling
+        message: Human-readable error message
+        details: Optional dictionary of additional error context
+        
+    Example:
+        error = TaprootError(
+            code="INVALID_AMOUNT",
+            message="Amount must be positive",
+            details={"amount": -100}
+        )
+    """
     code: str
     message: str
     details: Optional[Dict[str, Any]] = None
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Returns formatted error string with code and message."""
         return f"{self.code}: {self.message}"
 
 
 class TaprootIntegration:
-    """Handle integration with Taproot Assets extension."""
+    """
+    Integration service for Taproot Assets functionality.
+    
+    This class provides static methods to interact with the Taproot Assets
+    extension, handling common operations like availability checks and
+    invoice creation. It includes comprehensive error handling and
+    validation for all operations.
+    """
     
     @staticmethod
     async def is_taproot_available() -> Tuple[bool, Optional[TaprootError]]:
         """
-        Check if Taproot Assets extension is installed and enabled.
-        
+        Check if Taproot Assets extension is installed and active.
+
+        Verifies that the Taproot Assets extension is both installed in LNbits
+        and currently active. This check should be performed before attempting
+        any Taproot Assets operations.
+
         Returns:
-            Tuple[bool, Optional[TaprootError]]: (is_available, error_if_any)
+            Tuple containing:
+            - bool: True if extension is available and active
+            - Optional[TaprootError]: Error details if check fails, None if successful
+            
+        Example:
+            available, error = await TaprootIntegration.is_taproot_available()
+            if not available:
+                logger.error(f"Taproot not available: {error}")
         """
         try:
             extensions = await get_installed_extensions()
@@ -61,29 +113,39 @@ class TaprootIntegration:
         expiry: Optional[int] = None
     ) -> Tuple[Optional[Dict[str, Any]], Optional[TaprootError]]:
         """
-        Create a Taproot Asset invoice using the RFQ (Request for Quote) process.
-        This creates an invoice that can be paid with either sats or the specified asset.
-        
+        Create a Taproot Asset invoice using RFQ (Request for Quote) process.
+
+        Creates an invoice that can be paid with either sats or the specified asset
+        using the RFQ system. This method handles both the creation process and
+        all necessary validation.
+
+        Args:
+            asset_id: Taproot Asset ID for the invoice
+            amount: Amount of the asset to request
+            description: Payment description
+            wallet_id: LNbits wallet ID for the recipient
+            user_id: LNbits user ID of the recipient
+            extra: Additional metadata for the invoice
+            peer_pubkey: Optional specific peer to use for the trade
+            expiry: Optional invoice expiry time in seconds
+
         Returns:
-            Tuple[Optional[Dict], Optional[TaprootError]]: (invoice_data, error_if_any)
-            invoice_data contains payment_hash, payment_request, checking_id if successful
+            Tuple containing:
+            - Optional[Dict]: Invoice data if successful, with keys:
+                - payment_hash: Hash of the payment
+                - payment_request: BOLT11 invoice
+                - checking_id: ID for checking payment status
+                - is_rfq: Always True for RFQ invoices
+            - Optional[TaprootError]: Error details if creation fails
+            
+        Note:
+            The peer_pubkey is optional - if not provided, the invoice service
+            will automatically discover and select an appropriate peer.
         """
         try:
             # Check if extension is available first
             taproot_available, error = await TaprootIntegration.is_taproot_available()
             if not taproot_available:
-                return None, error
-
-            try:
-                from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
-                from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
-            except ImportError as e:
-                error = TaprootError(
-                    code="TAPROOT_IMPORT_ERROR",
-                    message="Failed to import Taproot Assets modules",
-                    details={"error": str(e)}
-                )
-                logger.error(str(error))
                 return None, error
             
             # Validate inputs
