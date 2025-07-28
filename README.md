@@ -61,7 +61,7 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - [Video Tutorial](https://www.youtube.com/@makerbits7700)
 
 ## Support
-For support, please [open an issue on GitHub](https://github.com/lnbits/bitcoinswitch/issues).
+For support, please [open an issue on GitHub](https://github.com/echennells/bitcoinswitch_extension/issues).
 
 ## Credits
 - Original Authors: Ben Arc, DNI
