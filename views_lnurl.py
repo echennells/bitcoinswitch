@@ -49,7 +49,8 @@ async def validate_taproot_payment(
         return False, None
 
     # Verify taproot is available
-    if not await TaprootIntegration.is_taproot_available():
+    taproot_available, _ = await TaprootIntegration.is_taproot_available()
+    if not taproot_available:
         return False, None
 
     # Verify asset_id is accepted
@@ -158,7 +159,8 @@ async def lnurl_params(
             current_switch = s
             break
     
-    if is_asset_enabled_switch(current_switch) and await TaprootIntegration.is_taproot_available():
+    taproot_available, _ = await TaprootIntegration.is_taproot_available()
+    if is_asset_enabled_switch(current_switch) and taproot_available:
         resp["acceptsAssets"] = True
         resp["acceptedAssetIds"] = current_switch.accepted_asset_ids
         resp["assetMetadata"] = {
@@ -260,9 +262,10 @@ async def lnurl_callback(
         return {"status": "ERROR", "reason": "Wallet not found"}
 
     # If no asset_id provided but switch accepts assets, use first accepted asset
+    taproot_available, _ = await TaprootIntegration.is_taproot_available()
     if (is_asset_enabled_switch(current_switch) and 
-        await TaprootIntegration.is_taproot_available() and
-        (not asset_id or asset_id not in current_switch.accepted_asset_ids)):
+        taproot_available and
+        not asset_id):
         asset_id = current_switch.accepted_asset_ids[0]
     
     # Validate taproot payment requirements
