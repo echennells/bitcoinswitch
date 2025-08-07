@@ -2,7 +2,7 @@
   "repos": [
     {
       "id": "bitcoinswitch",
-      "organisation": "lnbits",
+      "organisation": "echennells",
       "repository": "bitcoinswitch_extension"
     }
   ]

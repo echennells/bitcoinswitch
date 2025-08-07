@@ -1,7 +1,7 @@
 {
   "id": "bitcoinswitch",
   "name": "Bitcoin Switch",
-  "short_description": "Turn things on with bitcoin",
+  "short_description": "Turn things on with bitcoin - now with Taproot Assets support",
   "tile": "/bitcoinswitch/static/image/icon.png",
   "min_lnbits_version": "1.0.0",
   "contributors": [
@@ -24,17 +24,22 @@
       "name": "dni",
       "uri": "https://github.com/dni",
       "role": "Developer"
+    },
+    {
+      "name": "Eric Chennells",
+      "uri": "https://github.com/echennells",
+      "role": "Taproot Assets Integration"
     }
   ],
   "images": [
     {
-      "uri": "https://raw.githubusercontent.com/lnbits/bitcoinswitch-extension/main/static/image/1.png"
+      "uri": "https://raw.githubusercontent.com/echennells/bitcoinswitch_extension/main/static/image/1.png"
     },
     {
-      "uri": "https://raw.githubusercontent.com/lnbits/bitcoinswitch-extension/main/static/image/2.png"
+      "uri": "https://raw.githubusercontent.com/echennells/bitcoinswitch_extension/main/static/image/2.png"
     }
   ],
-  "description_md": "https://raw.githubusercontent.com/lnbits/bitcoinswitch-extension/main/description.md",
-  "terms_and_conditions_md": "https://raw.githubusercontent.com/lnbits/bitcoinswitch-extension/main/toc.md",
+  "description_md": "https://raw.githubusercontent.com/echennells/bitcoinswitch_extension/main/description.md",
+  "terms_and_conditions_md": "https://raw.githubusercontent.com/echennells/bitcoinswitch_extension/main/toc.md",
   "license": "MIT"
 }

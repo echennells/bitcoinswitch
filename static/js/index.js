@@ -1,6 +1,55 @@
+// Utility functions
+const utils = {
+  async apiRequest(method, url, wallet, data = null) {
+    try {
+      const response = await LNbits.api.request(method, url, wallet, data);
+      return response.data;
+    } catch (error) {
+      LNbits.utils.notifyApiError(error);
+      throw error;
+    }
+  },
+
+  prepareFormData(data) {
+    // Filter out undefined/null/empty values
+    const updatedData = Object.entries(data)
+      .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+      .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {});
+    
+    // Apply global taproot settings if needed
+    if (data.accepts_assets && data.switches) {
+      updatedData.switches = data.switches.map(sw => ({
+        ...sw,
+        accepts_assets: true,
+        accepted_asset_ids: data.accepted_asset_ids || []
+      }));
+    }
+    
+    return updatedData;
+  },
+
+  initWebSocket(url, callbacks = {}) {
+    if (!('WebSocket' in window)) {
+      callbacks.onError?.('WebSocket NOT supported by your Browser!');
+      return null;
+    }
+
+    const ws = new WebSocket(url);
+    
+    ws.addEventListener('open', () => callbacks.onOpen?.('Websocket connected'));
+    ws.addEventListener('message', (evt) => callbacks.onMessage?.(evt.data));
+    ws.addEventListener('close', () => callbacks.onClose?.('Connection closed'));
+    ws.addEventListener('error', (error) => callbacks.onError?.(error.message));
+    
+    return ws;
+  }
+};
+
+// Main Vue application
 window.app = Vue.createApp({
   el: '#vue',
   mixins: [windowMixin],
+  
   data() {
     return {
       protocol: window.location.protocol,
@@ -14,6 +63,8 @@ window.app = Vue.createApp({
       taprootAssetsAvailable: false,
       availableAssets: [],
       loadingAssets: false,
+      
+      // Table configuration
       bitcoinswitchTable: {
         columns: [
           {
@@ -45,345 +96,42 @@ window.app = Vue.createApp({
           rowsPerPage: 10
         }
       },
+      
+      // Dialog states
       settingsDialog: {
         show: false,
         data: {}
       },
       formDialog: {
         show: false,
-        data: {
-          switches: [],
-          lnurl_toggle: false,
-          show_message: false,
-          show_ack: false,
-          show_price: 'None',
-          device: 'pos',
-          profit: 1,
-          amount: 1,
-          title: '',
-          wallet: '',
-          currency: 'sat',
-          accepts_assets: false,
-          accepted_asset_ids: []
-        }
+        data: this.getDefaultFormData()
       },
       qrCodeDialog: {
         show: false,
         data: null
       }
-    }
+    };
   },
+
   computed: {
     wsMessage() {
-      return this.websocketMessage
+      return this.websocketMessage;
     },
+    
     currentSwitch() {
-      if (!this.qrCodeDialog.data || !this.lnurlValue) return null
-      return this.qrCodeDialog.data.switches.find(s => s.lnurl === this.lnurlValue)
+      if (!this.qrCodeDialog.data || !this.lnurlValue) return null;
+      return this.qrCodeDialog.data.switches.find(s => s.lnurl === this.lnurlValue);
+    },
+    
+    adminKey() {
+      return this.g.user.wallets[0].adminkey;
     }
   },
-  methods: {
-    openQrCodeDialog(bitcoinswitchId) {
-      const bitcoinswitch = _.findWhere(this.bitcoinswitches, {
-        id: bitcoinswitchId
-      })
-      this.qrCodeDialog.data = _.clone(bitcoinswitch)
-      this.qrCodeDialog.data.url =
-        window.location.protocol + '//' + window.location.host
-      this.lnurlValue = this.qrCodeDialog.data.switches[0].lnurl
-      this.websocketConnector(
-        'wss://' + window.location.host + '/api/v1/ws/' + bitcoinswitchId
-      )
-      this.qrCodeDialog.show = true
-    },
-    addSwitch() {
-      this.formDialog.data.switches.push({
-        amount: 10,
-        pin: 0,
-        duration: 1000,
-        variable: false,
-        comment: false
-      })
-    },
-    removeSwitch() {
-      this.formDialog.data.switches.pop()
-    },
-    handleAcceptAssetsChange(val) {
-      if (!val) {
-        this.formDialog.data.accepted_asset_ids = []
-      }
-      // Update all existing switches to use the global setting
-      this.formDialog.data.switches.forEach(sw => {
-        sw.accepts_assets = val
-        sw.accepted_asset_ids = val ? this.formDialog.data.accepted_asset_ids : []
-      })
-    },
-    cancelFormDialog() {
-      this.formDialog.show = false
-      this.clearFormDialog()
-    },
-    closeFormDialog() {
-      this.clearFormDialog()
-    },
-    sendFormData() {
-      if (this.formDialog.data.id) {
-        this.updateBitcoinswitch(
-          this.g.user.wallets[0].adminkey,
-          this.formDialog.data
-        )
-      } else {
-        this.createBitcoinswitch(
-          this.g.user.wallets[0].adminkey,
-          this.formDialog.data
-        )
-      }
-    },
 
-    createBitcoinswitch(wallet, data) {
-      const updatedData = {}
-      for (const property in data) {
-        if (data[property] !== undefined && data[property] !== null && data[property] !== '') {
-          updatedData[property] = data[property]
-        }
-      }
-      // Ensure boolean fields are included even if false
-      
-      // Apply global taproot settings to all switches
-      if (data.accepts_assets && data.switches) {
-        updatedData.switches = data.switches.map(sw => ({
-          ...sw,
-          accepts_assets: true,
-          accepted_asset_ids: data.accepted_asset_ids || []
-        }))
-      }
-      
-      LNbits.api
-        .request(
-          'POST',
-          '/bitcoinswitch/api/v1/bitcoinswitch',
-          wallet,
-          updatedData
-        )
-        .then(response => {
-          this.bitcoinswitches.push(response.data)
-          this.formDialog.show = false
-          this.clearFormDialog()
-        })
-        .catch(function (error) {
-          LNbits.utils.notifyApiError(error)
-        })
-    },
-    updateBitcoinswitch(wallet, data) {
-      const updatedData = {}
-      for (const property in data) {
-        if (data[property] !== undefined && data[property] !== null && data[property] !== '') {
-          updatedData[property] = data[property]
-        }
-      }
-      // Ensure boolean fields are included even if false
-      // Always include id for update
-      updatedData.id = data.id
-      
-      // Apply global taproot settings to all switches
-      if (data.accepts_assets && data.switches) {
-        updatedData.switches = data.switches.map(sw => ({
-          ...sw,
-          accepts_assets: true,
-          accepted_asset_ids: data.accepted_asset_ids || []
-        }))
-      }
-      
-      LNbits.api
-        .request(
-          'PUT',
-          '/bitcoinswitch/api/v1/bitcoinswitch/' + updatedData.id,
-          wallet,
-          updatedData
-        )
-        .then(response => {
-          this.bitcoinswitches = _.reject(this.bitcoinswitches, function (obj) {
-            return obj.id === updatedData.id
-          })
-          this.bitcoinswitches.push(response.data)
-          this.formDialog.show = false
-          this.clearFormDialog()
-        })
-        .catch(function (error) {
-          LNbits.utils.notifyApiError(error)
-        })
-    },
-    getBitcoinswitches() {
-      LNbits.api
-        .request(
-          'GET',
-          '/bitcoinswitch/api/v1/bitcoinswitch',
-          this.g.user.wallets[0].adminkey
-        )
-        .then(response => {
-          if (response.data.length > 0) {
-            this.bitcoinswitches = response.data
-          }
-        })
-        .catch(function (error) {
-          LNbits.utils.notifyApiError(error)
-        })
-    },
-    deleteBitcoinswitch(bitcoinswitchId) {
-      LNbits.utils
-        .confirmDialog('Are you sure you want to delete this pay link?')
-        .onOk(() => {
-          LNbits.api
-            .request(
-              'DELETE',
-              '/bitcoinswitch/api/v1/bitcoinswitch/' + bitcoinswitchId,
-              this.g.user.wallets[0].adminkey
-            )
-            .then(() => {
-              this.bitcoinswitches = _.reject(
-                this.bitcoinswitches,
-                function (obj) {
-                  return obj.id === bitcoinswitchId
-                }
-              )
-            })
-            .catch(function (error) {
-              LNbits.utils.notifyApiError(error)
-            })
-        })
-    },
-    openCreateDialog() {
-      this.clearFormDialog()
-      // Add a default switch if none exist
-      if (this.formDialog.data.switches.length === 0) {
-        this.addSwitch()
-      }
-      this.formDialog.show = true
-    },
-    openUpdateBitcoinswitch(bitcoinswitchId) {
-      const bitcoinswitch = _.findWhere(this.bitcoinswitches, {
-        id: bitcoinswitchId
-      })
-      this.formDialog.data = _.clone(bitcoinswitch)
-      
-      // Extract global taproot settings from switches if any switch has them
-      if (bitcoinswitch.switches && bitcoinswitch.switches.length > 0) {
-        const firstSwithWithAssets = bitcoinswitch.switches.find(sw => sw.accepts_assets)
-        if (firstSwithWithAssets) {
-          this.formDialog.data.accepts_assets = true
-          this.formDialog.data.accepted_asset_ids = firstSwithWithAssets.accepted_asset_ids || []
-        } else {
-          this.formDialog.data.accepts_assets = false
-          this.formDialog.data.accepted_asset_ids = []
-        }
-      }
-      
-      this.formDialog.show = true
-    },
-    openBitcoinswitchSettings(bitcoinswitchId) {
-      const bitcoinswitch = _.findWhere(this.bitcoinswitches, {
-        id: bitcoinswitchId
-      })
-      this.wslocation =
-        'wss://' + window.location.host + '/api/v1/ws/' + bitcoinswitchId
-      this.settingsDialog.data = _.clone(bitcoinswitch)
-      this.settingsDialog.show = true
-    },
-    websocketConnector(websocketUrl) {
-      if ('WebSocket' in window) {
-        const ws = new WebSocket(websocketUrl)
-        this.updateWsMessage('Websocket connected')
-        ws.onmessage = evt => {
-          this.updateWsMessage('Message received: ' + evt.data)
-        }
-        ws.onclose = () => {
-          this.updateWsMessage('Connection closed')
-        }
-      } else {
-        this.updateWsMessage('WebSocket NOT supported by your Browser!')
-      }
-    },
-    updateWsMessage(message) {
-      this.websocketMessage = message
-    },
-    async checkTaprootAvailability() {
-      console.log('[BitcoinSwitch] Checking Taproot Assets availability...')
-      try {
-        console.log('[BitcoinSwitch] Making API request to /api/v1/extension')
-        console.log('[BitcoinSwitch] User ID:', this.g.user.id)
-        
-        const {data} = await LNbits.api.request(
-          'GET',
-          '/api/v1/extension?usr=' + this.g.user.id,
-          this.g.user.wallets[0].adminkey
-        )
-        
-        console.log('[BitcoinSwitch] Extensions response:', data)
-        
-        const taprootExt = data.find(ext => ext.code === 'taproot_assets')
-        console.log('[BitcoinSwitch] Taproot extension found:', taprootExt)
-        
-        this.taprootAssetsAvailable = data.some(
-          ext => ext.code === 'taproot_assets' && (ext.active || ext.is_valid)
-        )
-        
-        console.log('[BitcoinSwitch] Taproot Assets available:', this.taprootAssetsAvailable)
-        
-        if (this.taprootAssetsAvailable) {
-          console.log('[BitcoinSwitch] Loading available assets...')
-          await this.loadAvailableAssets()
-        } else {
-          console.log('[BitcoinSwitch] Taproot Assets not available or not active')
-        }
-      } catch (error) {
-        console.error('[BitcoinSwitch] Failed to check taproot availability:', error)
-        console.error('[BitcoinSwitch] Error details:', error.response || error)
-        this.taprootAssetsAvailable = false
-      }
-    },
-    async loadAvailableAssets() {
-      if (!this.taprootAssetsAvailable) {
-        console.log('[BitcoinSwitch] Skipping asset load - Taproot not available')
-        return
-      }
-      
-      console.log('[BitcoinSwitch] Loading Taproot Assets...')
-      this.loadingAssets = true
-      try {
-        console.log('[BitcoinSwitch] Making API request to /taproot_assets/api/v1/taproot/listassets')
-        const {data} = await LNbits.api.request(
-          'GET',
-          '/taproot_assets/api/v1/taproot/listassets',
-          this.g.user.wallets[0].adminkey
-        )
-        console.log('[BitcoinSwitch] Assets response:', data)
-        
-        this.availableAssets = data.map(asset => ({
-          asset_id: asset.asset_id,
-          name: asset.name || `Asset ${asset.asset_id.substring(0, 8)}...`,
-          balance: asset.balance || 0
-        }))
-        
-        console.log('[BitcoinSwitch] Processed assets:', this.availableAssets)
-        console.log('[BitcoinSwitch] Total assets available:', this.availableAssets.length)
-      } catch (error) {
-        console.error('[BitcoinSwitch] Failed to load assets:', error)
-        console.error('[BitcoinSwitch] Asset load error details:', error.response || error)
-        this.availableAssets = []
-      } finally {
-        this.loadingAssets = false
-        console.log('[BitcoinSwitch] Asset loading complete')
-      }
-    },
-    hasTaprootAssets(bitcoinswitch) {
-      return bitcoinswitch.switches && 
-             bitcoinswitch.switches.some(s => s.accepts_assets && s.accepted_asset_ids && s.accepted_asset_ids.length > 0)
-    },
-    getAssetName(assetId) {
-      const asset = this.availableAssets.find(a => a.asset_id === assetId)
-      return asset ? asset.name : `${assetId.substring(0, 8)}...`
-    },
-    clearFormDialog() {
-      this.formDialog.data = {
+  methods: {
+    // Form handling
+    getDefaultFormData() {
+      return {
         switches: [],
         lnurl_toggle: false,
         show_message: false,
@@ -397,36 +145,247 @@ window.app = Vue.createApp({
         currency: 'sat',
         accepts_assets: false,
         accepted_asset_ids: []
+      };
+    },
+
+    clearFormDialog() {
+      this.formDialog.data = this.getDefaultFormData();
+    },
+
+    // Switch management
+    addSwitch() {
+      this.formDialog.data.switches.push({
+        amount: 10,
+        pin: 0,
+        duration: 1000,
+        variable: false,
+        comment: false
+      });
+    },
+
+    removeSwitch() {
+      this.formDialog.data.switches.pop();
+    },
+
+    handleAcceptAssetsChange(val) {
+      if (!val) {
+        this.formDialog.data.accepted_asset_ids = [];
+      }
+      // Update all switches to use global setting
+      this.formDialog.data.switches.forEach(sw => {
+        sw.accepts_assets = val;
+        sw.accepted_asset_ids = val ? this.formDialog.data.accepted_asset_ids : [];
+      });
+    },
+
+    // API interactions
+    async createBitcoinswitch(wallet, data) {
+      try {
+        const formData = utils.prepareFormData(data);
+        const response = await utils.apiRequest(
+          'POST',
+          '/bitcoinswitch/api/v1/bitcoinswitch',
+          wallet,
+          formData
+        );
+        
+        this.bitcoinswitches.push(response);
+        this.formDialog.show = false;
+        this.clearFormDialog();
+      } catch (error) {
+        // Error handled by utils.apiRequest
       }
     },
+
+    async updateBitcoinswitch(wallet, data) {
+      try {
+        const formData = utils.prepareFormData(data);
+        formData.id = data.id;
+        
+        const response = await utils.apiRequest(
+          'PUT',
+          `/bitcoinswitch/api/v1/bitcoinswitch/${formData.id}`,
+          wallet,
+          formData
+        );
+        
+        this.bitcoinswitches = this.bitcoinswitches.filter(obj => obj.id !== formData.id);
+        this.bitcoinswitches.push(response);
+        this.formDialog.show = false;
+        this.clearFormDialog();
+      } catch (error) {
+        // Error handled by utils.apiRequest
+      }
+    },
+
+    async getBitcoinswitches() {
+      try {
+        const data = await utils.apiRequest(
+          'GET',
+          '/bitcoinswitch/api/v1/bitcoinswitch',
+          this.adminKey
+        );
+        if (data.length > 0) {
+          this.bitcoinswitches = data;
+        }
+      } catch (error) {
+        // Error handled by utils.apiRequest
+      }
+    },
+
+    async deleteBitcoinswitch(bitcoinswitchId) {
+      try {
+        await LNbits.utils.confirmDialog('Are you sure you want to delete this pay link?');
+        
+        await utils.apiRequest(
+          'DELETE',
+          `/bitcoinswitch/api/v1/bitcoinswitch/${bitcoinswitchId}`,
+          this.adminKey
+        );
+        
+        this.bitcoinswitches = this.bitcoinswitches.filter(obj => obj.id !== bitcoinswitchId);
+      } catch (error) {
+        // User cancelled or error handled by utils.apiRequest
+      }
+    },
+
+    // Dialog management
+    openQrCodeDialog(bitcoinswitchId) {
+      const bitcoinswitch = this.bitcoinswitches.find(sw => sw.id === bitcoinswitchId);
+      this.qrCodeDialog.data = {...bitcoinswitch};
+      this.qrCodeDialog.data.url = `${window.location.protocol}//${window.location.host}`;
+      this.lnurlValue = this.qrCodeDialog.data.switches[0].lnurl;
+      
+      const wsUrl = `wss://${window.location.host}/api/v1/ws/${bitcoinswitchId}`;
+      utils.initWebSocket(wsUrl, {
+        onOpen: msg => this.updateWsMessage(msg),
+        onMessage: data => this.updateWsMessage(`Message received: ${data}`),
+        onClose: msg => this.updateWsMessage(msg),
+        onError: msg => this.updateWsMessage(`WebSocket error: ${msg}`)
+      });
+      
+      this.qrCodeDialog.show = true;
+    },
+
+    openCreateDialog() {
+      this.clearFormDialog();
+      if (this.formDialog.data.switches.length === 0) {
+        this.addSwitch();
+      }
+      this.formDialog.show = true;
+    },
+
+    openUpdateBitcoinswitch(bitcoinswitchId) {
+      const bitcoinswitch = this.bitcoinswitches.find(sw => sw.id === bitcoinswitchId);
+      this.formDialog.data = {...bitcoinswitch};
+      
+      // Extract global taproot settings
+      if (bitcoinswitch.switches?.length > 0) {
+        const firstSwitchWithAssets = bitcoinswitch.switches.find(sw => sw.accepts_assets);
+        if (firstSwitchWithAssets) {
+          this.formDialog.data.accepts_assets = true;
+          this.formDialog.data.accepted_asset_ids = firstSwitchWithAssets.accepted_asset_ids || [];
+        } else {
+          this.formDialog.data.accepts_assets = false;
+          this.formDialog.data.accepted_asset_ids = [];
+        }
+      }
+      
+      this.formDialog.show = true;
+    },
+
+    openBitcoinswitchSettings(bitcoinswitchId) {
+      const bitcoinswitch = this.bitcoinswitches.find(sw => sw.id === bitcoinswitchId);
+      this.wslocation = `wss://${window.location.host}/api/v1/ws/${bitcoinswitchId}`;
+      this.settingsDialog.data = {...bitcoinswitch};
+      this.settingsDialog.show = true;
+    },
+
+    // Taproot functionality
+    async checkTaprootAvailability() {
+      try {
+        const data = await utils.apiRequest(
+          'GET',
+          `/api/v1/extension?usr=${this.g.user.id}`,
+          this.adminKey
+        );
+        
+        this.taprootAssetsAvailable = data.some(
+          ext => ext.code === 'taproot_assets' && (ext.active || ext.is_valid)
+        );
+        
+        if (this.taprootAssetsAvailable) {
+          await this.loadAvailableAssets();
+        }
+      } catch (error) {
+        this.taprootAssetsAvailable = false;
+      }
+    },
+
+    async loadAvailableAssets() {
+      if (!this.taprootAssetsAvailable) return;
+      
+      this.loadingAssets = true;
+      try {
+        const data = await utils.apiRequest(
+          'GET',
+          '/taproot_assets/api/v1/taproot/listassets',
+          this.adminKey
+        );
+        
+        this.availableAssets = data.map(asset => ({
+          asset_id: asset.asset_id,
+          name: asset.name || `Asset ${asset.asset_id.substring(0, 8)}...`,
+          balance: asset.balance || 0
+        }));
+      } catch (error) {
+        this.availableAssets = [];
+      } finally {
+        this.loadingAssets = false;
+      }
+    },
+
+    hasTaprootAssets(bitcoinswitch) {
+      return bitcoinswitch.switches?.some(s => 
+        s.accepts_assets && s.accepted_asset_ids?.length > 0
+      );
+    },
+
+    getAssetName(assetId) {
+      const asset = this.availableAssets.find(a => a.asset_id === assetId);
+      return asset ? asset.name : `${assetId.substring(0, 8)}...`;
+    },
+
+    // Form submission
+    sendFormData() {
+      const method = this.formDialog.data.id ? 'updateBitcoinswitch' : 'createBitcoinswitch';
+      this[method](this.adminKey, this.formDialog.data);
+    },
+
+    // Utility methods
+    updateWsMessage(message) {
+      this.websocketMessage = message;
+    },
+
     exportCSV() {
-      LNbits.utils.exportCSV(
-        this.bitcoinswitchTable.columns,
-        this.bitcoinswitches
-      )
+      LNbits.utils.exportCSV(this.bitcoinswitchTable.columns, this.bitcoinswitches);
     }
   },
+
   created() {
-    console.log('[BitcoinSwitch] Extension initializing...')
-    console.log('[BitcoinSwitch] User data:', this.g.user)
+    this.getBitcoinswitches();
+    this.checkTaprootAvailability();
     
-    this.getBitcoinswitches()
-    this.checkTaprootAvailability()
-    this.location = [window.location.protocol, '//', window.location.host].join(
-      ''
-    )
-    this.wslocation = ['wss://', window.location.host].join('')
+    this.location = `${window.location.protocol}//${window.location.host}`;
+    this.wslocation = `wss://${window.location.host}`;
     
-    console.log('[BitcoinSwitch] Loading currencies...')
-    LNbits.api
-      .request('GET', '/api/v1/currencies')
-      .then(response => {
-        console.log('[BitcoinSwitch] Currencies loaded:', response.data.length)
-        this.currency = ['sat', 'USD', ...response.data]
+    // Load available currencies
+    utils.apiRequest('GET', '/api/v1/currencies')
+      .then(data => {
+        this.currency = ['sat', 'USD', ...data];
       })
-      .catch(error => {
-        console.error('[BitcoinSwitch] Failed to load currencies:', error)
-        LNbits.utils.notifyApiError(error)
-      })
+      .catch(() => {
+        // Error already handled by utils.apiRequest
+      });
   }
-})
+});

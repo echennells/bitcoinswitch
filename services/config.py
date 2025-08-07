@@ -28,15 +28,19 @@ class BitcoinSwitchConfig(BaseModel):
     )
 
     # Taproot settings
-    taproot_invoice_expiry: int = Field(
-        default=int(os.getenv("BITCOINSWITCH_TAPROOT_INVOICE_EXPIRY", "3600")),
-        description="Taproot invoice expiry in seconds"
+    taproot_quote_expiry: int = Field(
+        default=int(os.getenv("BITCOINSWITCH_TAPROOT_QUOTE_EXPIRY", "300")),
+        description="How long a Taproot RFQ quote remains valid in seconds (default 5 minutes)"
+    )
+    taproot_payment_expiry: int = Field(
+        default=int(os.getenv("BITCOINSWITCH_TAPROOT_PAYMENT_EXPIRY", "3600")),
+        description="How long a Taproot payment invoice remains valid in seconds (default 1 hour)"
     )
     
     # Comment settings
     max_comment_length: int = Field(
-        default=int(os.getenv("BITCOINSWITCH_MAX_COMMENT_LENGTH", "1500")),
-        description="Maximum length for payment comments"
+        default=int(os.getenv("BITCOINSWITCH_MAX_COMMENT_LENGTH", "639")),
+        description="Maximum length for payment comments (BOLT-11 limit is 639 bytes)"
     )
 
 # Global config instance
