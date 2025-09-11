@@ -89,8 +89,9 @@ async def on_invoice_paid(payment: Payment) -> None:
     """
     Process a paid invoice and activate the corresponding switch.
     
-    Handles both standard Lightning Network payments and Taproot Asset payments.
-    Supports variable time calculations and comment handling.
+    Handles standard Lightning Network payments, RFQ Taproot Asset payments,
+    and direct Taproot Asset payments. Supports variable time calculations 
+    and comment handling.
     
     Args:
         payment: The completed payment to process
@@ -101,6 +102,7 @@ async def on_invoice_paid(payment: Payment) -> None:
     """
     # Validate payment type
     is_taproot = payment.extra.get("is_taproot", False)
+    is_direct_asset = payment.extra.get("is_direct_asset", False)
     payment_id = payment.extra.get("id")
     
     if is_taproot:
@@ -167,11 +169,16 @@ async def on_invoice_paid(payment: Payment) -> None:
             bitcoinswitch_payment.bitcoinswitch_id,
             payload,
         )
+        
+        # Log payment type for debugging
+        payment_type = "Direct Asset" if is_direct_asset else "RFQ Asset" if is_taproot else "Lightning"
         logger.info(
-            "Successfully sent switch command",
+            f"Successfully sent switch command for {payment_type} payment",
             payment_id=payment_id,
             switch_id=bitcoinswitch_payment.bitcoinswitch_id,
-            pin=bitcoinswitch_payment.pin
+            pin=bitcoinswitch_payment.pin,
+            payment_type=payment_type,
+            is_direct_asset=is_direct_asset
         )
     except Exception as e:
         logger.error(

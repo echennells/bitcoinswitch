@@ -54,3 +54,10 @@ async def m001_initial(db):
         );
         """
     )
+
+
+async def m002_add_direct_asset_field(db):
+    """Add is_direct_asset field to bitcoinswitch_payments table."""
+    await db.execute(
+        "ALTER TABLE bitcoinswitch.payment ADD COLUMN is_direct_asset BOOLEAN DEFAULT FALSE"
+    )

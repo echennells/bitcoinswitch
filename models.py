@@ -141,6 +141,10 @@ class BitcoinswitchPayment(BaseModel):
         default=None,
         description="Taproot Asset ID if applicable"
     )
+    is_direct_asset: Optional[bool] = Field(
+        default=False, 
+        description="True if this is a direct asset payment (not RFQ)"
+    )
     
     # Market maker fields
     quoted_rate: Optional[float] = Field(

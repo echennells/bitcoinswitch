@@ -209,3 +209,120 @@ class TaprootIntegration:
             )
             logger.error(str(error))
             return None, error
+    
+    @staticmethod
+    async def create_direct_asset_invoice(
+        asset_id: str,
+        amount: int,
+        description: str,
+        wallet_id: str,
+        user_id: str,
+        expiry: Optional[int] = None
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[TaprootError]]:
+        """
+        Create a direct Taproot Asset transfer invoice (not RFQ).
+        
+        This creates an invoice that requests a direct asset transfer,
+        where the payer sends assets directly to the payee without
+        any sat-to-asset conversion via RFQ.
+        
+        Args:
+            asset_id: Taproot Asset ID to request
+            amount: Amount of the asset to request
+            description: Payment description
+            wallet_id: LNbits wallet ID for the recipient
+            user_id: LNbits user ID of the recipient
+            expiry: Optional invoice expiry time in seconds
+            
+        Returns:
+            Tuple containing:
+            - Optional[Dict]: Invoice data if successful, with keys:
+                - payment_hash: Hash of the payment
+                - payment_request: BOLT11 invoice for direct asset transfer
+                - checking_id: ID for checking payment status
+                - is_rfq: Always False for direct invoices
+            - Optional[TaprootError]: Error details if creation fails
+        """
+        try:
+            # Check if extension is available first
+            taproot_available, error = await TaprootIntegration.is_taproot_available()
+            if not taproot_available:
+                return None, error
+            
+            # Validate inputs
+            if not asset_id:
+                return None, TaprootError(
+                    code="INVALID_ASSET_ID",
+                    message="Asset ID is required for direct asset invoice"
+                )
+            
+            if amount <= 0:
+                return None, TaprootError(
+                    code="INVALID_AMOUNT",
+                    message="Amount must be greater than 0",
+                    details={"amount": amount}
+                )
+            
+            # Import the Taproot Assets services
+            from lnbits.extensions.taproot_assets.services.wallet_service import WalletService
+            from lnbits.extensions.taproot_assets.models import CreateInvoiceRequest
+            
+            # Create the direct invoice request
+            request = CreateInvoiceRequest(
+                amount=amount,
+                memo=description,
+                asset_id=asset_id,
+                expiry=expiry or 3600
+            )
+            
+            try:
+                # Create direct asset invoice using the Taproot Assets wallet service
+                wallet_info = await WalletService.get_wallet_info(
+                    user_id=user_id,
+                    wallet_id=wallet_id
+                )
+                
+                if not wallet_info:
+                    raise Exception("Wallet not found or not accessible")
+                
+                # Create the invoice directly through the Taproot Assets wallet
+                response = await wallet_info.wallet.create_invoice(
+                    amount=amount,
+                    memo=description,
+                    asset_id=asset_id,
+                    expiry=expiry
+                )
+                
+                if not response.ok:
+                    raise Exception(response.error_message or "Failed to create invoice")
+                
+                return {
+                    "payment_hash": response.checking_id,
+                    "payment_request": response.payment_request,
+                    "checking_id": response.checking_id,
+                    "is_rfq": False,
+                    "is_direct_asset": True
+                }, None
+                
+            except Exception as e:
+                error = TaprootError(
+                    code="DIRECT_INVOICE_CREATION_FAILED",
+                    message="Failed to create direct asset invoice",
+                    details={
+                        "error": str(e),
+                        "asset_id": asset_id,
+                        "amount": amount,
+                        "wallet_id": wallet_id
+                    }
+                )
+                logger.error(str(error))
+                return None, error
+            
+        except Exception as e:
+            error = TaprootError(
+                code="UNEXPECTED_ERROR",
+                message="Unexpected error during direct asset invoice creation",
+                details={"error": str(e)}
+            )
+            logger.error(str(error))
+            return None, error

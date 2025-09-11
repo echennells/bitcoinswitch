@@ -484,41 +484,75 @@ async def handle_taproot_payment(
         current_switch=current_switch
     )
 
-    # Create Taproot Asset invoice
-    taproot_result, taproot_error = await TaprootIntegration.create_rfq_invoice(
-        asset_id=asset_id,
-        amount=asset_amount,
-        description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
-        wallet_id=switch.wallet,
-        user_id=wallet.user,
-        extra={
-            "pin": str(bitcoinswitch_payment.pin),
-            "amount": str(int(amount)),
-            "comment": comment,
-            "variable": variable,
-            "id": payment_id,
-            "switch_id": switch.id,
-            "payload": bitcoinswitch_payment.payload,
-            "asset_amount": str(asset_amount)
-        },
-        expiry=config.taproot_payment_expiry
-    )
+    # Determine invoice type based on payment method
+    if asset_id:
+        # Direct asset payment: User is paying WITH assets
+        logger.info(f"Creating direct asset invoice for asset_id={asset_id}, amount={asset_amount}")
+        taproot_result, taproot_error = await TaprootIntegration.create_direct_asset_invoice(
+            asset_id=asset_id,
+            amount=asset_amount,
+            description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
+            wallet_id=switch.wallet,
+            user_id=wallet.user,
+            expiry=config.taproot_payment_expiry
+        )
+        
+        # Update payment record for direct asset payment
+        if taproot_result and not taproot_error:
+            bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
+            bitcoinswitch_payment.is_taproot = True
+            bitcoinswitch_payment.asset_id = asset_id
+            bitcoinswitch_payment.is_direct_asset = True  # New field to track direct payments
+            await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
+            return JSONResponse(content={
+                "pr": taproot_result["payment_request"],
+                "successAction": {
+                    "tag": "message",
+                    "message": f"Pay {asset_amount} units of {asset_id} directly",
+                },
+                "routes": [],
+            })
+    else:
+        # RFQ payment: User pays sats, vendor gets assets (existing logic)
+        logger.info(f"Creating RFQ invoice for asset conversion")
+        taproot_result, taproot_error = await TaprootIntegration.create_rfq_invoice(
+            asset_id=current_switch.accepted_asset_ids[0],  # Use switch config for RFQ
+            amount=asset_amount,
+            description=f"{switch.title} ({bitcoinswitch_payment.payload} ms)",
+            wallet_id=switch.wallet,
+            user_id=wallet.user,
+            extra={
+                "pin": str(bitcoinswitch_payment.pin),
+                "amount": str(int(amount)),
+                "comment": comment,
+                "variable": variable,
+                "id": payment_id,
+                "switch_id": switch.id,
+                "payload": bitcoinswitch_payment.payload,
+                "asset_amount": str(asset_amount)
+            },
+            expiry=config.taproot_payment_expiry
+        )
+
+    # Common error handling for both paths
     if not taproot_result or taproot_error:
-        logger.error("Failed to create RFQ invoice", error=taproot_error)
+        logger.error("Failed to create Taproot Asset invoice", error=taproot_error)
         return create_error_response("Failed to create Taproot Asset invoice")
 
     # Update payment record
     bitcoinswitch_payment.payment_hash = taproot_result["payment_hash"]
     bitcoinswitch_payment.is_taproot = True
-    bitcoinswitch_payment.asset_id = asset_id
+    bitcoinswitch_payment.asset_id = asset_id if asset_id else current_switch.accepted_asset_ids[0]
+    if not hasattr(bitcoinswitch_payment, 'is_direct_asset'):
+        bitcoinswitch_payment.is_direct_asset = False
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
     return JSONResponse(content={
         "pr": taproot_result["payment_request"],
         "successAction": {
             "tag": "message",
-            "message": f"{asset_amount} units of {asset_id} requested",
+            "message": f"{asset_amount} units of {bitcoinswitch_payment.asset_id} requested",
         },
         "routes": [],
     })
