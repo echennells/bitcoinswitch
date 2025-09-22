@@ -179,14 +179,13 @@ async def lnurl_params(
 
     try:
         # Calculate payment amount
-        price_msat = int(
-            (
-                await fiat_amount_as_satoshis(float(amount), switch.currency)
-                if switch.currency != "sat"
-                else float(amount)
-            )
-            * 1000
-        )
+        if switch.currency != "sat":
+            amount_in_sats = await fiat_amount_as_satoshis(float(amount), switch.currency)
+        else:
+            amount_in_sats = float(amount)
+
+        price_msat = int(amount_in_sats * 1000)
+        logger.info(f"DEBUG: lnurl_params - input_amount={amount}, amount_in_sats={amount_in_sats}, price_msat={price_msat}")
     except ValueError as e:
         logger.error(f"Invalid amount format: {amount}", error=str(e))
         return create_error_response("Invalid amount format")
@@ -324,9 +323,8 @@ async def handle_rfq_quote(
 
     decoded = bolt11_decode(rfq_invoice.payment_request)
     if decoded.amount_msat:
-        resp["minSendable"] = decoded.amount_msat
-        resp["maxSendable"] = decoded.amount_msat
-
+        # Store RFQ data for rate calculation, but don't override LNURL amounts
+        # The LNURL amounts should remain as price_msat (the original sat amount converted to msat)
         bitcoinswitch_payment.rfq_invoice_hash = rfq_invoice.payment_hash
         bitcoinswitch_payment.rfq_asset_amount = asset_amount
         bitcoinswitch_payment.rfq_sat_amount = decoded.amount_msat / 1000
@@ -364,6 +362,8 @@ async def lnurl_callback(
 
     if not amount:
         return create_error_response("No amount provided")
+
+    logger.info(f"DEBUG: lnurl_callback - received amount={amount}")
 
     # Get switch configuration
     current_switch = next(
@@ -435,6 +435,7 @@ async def handle_lightning_payment(
     payment_id: str
 ) -> JSONResponse:
     """Handle standard Lightning Network payment."""
+    logger.info(f"DEBUG: handle_lightning_payment - amount={amount}, amount/1000={amount/1000}")
     payment = await create_invoice(
         wallet_id=switch.wallet,
         amount=int(amount / 1000),
@@ -443,7 +444,7 @@ async def handle_lightning_payment(
         extra={
             "tag": "Switch",
             "pin": str(bitcoinswitch_payment.pin),
-            "amount": str(int(amount)),
+            "amount": str(int(amount / 1000)),  # Convert msat to sat for storage
             "comment": comment,
             "variable": variable,
             "id": payment_id,
@@ -493,7 +494,7 @@ async def handle_taproot_payment(
         user_id=wallet.user,
         extra={
             "pin": str(bitcoinswitch_payment.pin),
-            "amount": str(int(amount)),
+            "amount": str(int(amount / 1000)),  # Convert msat to sat for storage
             "comment": comment,
             "variable": variable,
             "id": payment_id,

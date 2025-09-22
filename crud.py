@@ -143,7 +143,7 @@ async def create_bitcoinswitch_payment(
         payload=payload,
         pin=pin,
         payment_hash=payment_hash,
-        sats=amount_msat,
+        sats=amount_msat // 1000,  # Convert msat to sat
     )
     await db.insert("bitcoinswitch.payment", payment)
     return payment
