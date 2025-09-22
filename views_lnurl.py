@@ -44,17 +44,40 @@ async def get_asset_name(asset_id: str, user_id: str) -> str:
         str: Asset name if found, otherwise shortened asset ID
     """
     try:
+        # Try getting from Taproot Assets daemon first (more comprehensive)
+        from lnbits.extensions.taproot_assets.services.wallet_service import WalletService
+
+        wallet_info = await WalletService.get_wallet_info(user_id=user_id, wallet_id=None)
+        if wallet_info and wallet_info.wallet:
+            assets = await wallet_info.wallet.list_assets()
+            logger.info(f"DEBUG: Looking for asset_id={asset_id[:8]}... in {len(assets)} assets from daemon")
+
+            for asset in assets:
+                asset_id_from_daemon = asset.get('asset_id') or asset.get('asset_genesis', {}).get('asset_id')
+                asset_name = asset.get('asset_genesis', {}).get('name', 'Unknown Asset')
+
+                logger.info(f"DEBUG: Checking daemon asset: id={asset_id_from_daemon[:8] if asset_id_from_daemon else 'None'}..., name='{asset_name}'")
+
+                if asset_id_from_daemon == asset_id:
+                    logger.info(f"DEBUG: Found matching asset from daemon: {asset_name}")
+                    return asset_name
+
+        # Fallback to database lookup
+        logger.info(f"DEBUG: Fallback to database lookup for {asset_id[:8]}...")
         from lnbits.extensions.taproot_assets.crud.assets import get_assets
         assets = await get_assets(user_id)
 
         for asset in assets:
             if asset.asset_id == asset_id:
+                logger.info(f"DEBUG: Found matching asset in DB: {asset.name}")
                 return asset.name
 
-        # Fallback to shortened asset ID if not found
+        # Final fallback to shortened asset ID
+        logger.warning(f"DEBUG: Asset {asset_id[:8]}... not found anywhere")
         return f"asset {asset_id[:8]}..."
-    except Exception:
-        # Fallback to shortened asset ID if any error
+
+    except Exception as e:
+        logger.error(f"DEBUG: Error getting asset name: {e}")
         return f"asset {asset_id[:8]}..."
 
 
