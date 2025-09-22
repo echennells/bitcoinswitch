@@ -32,6 +32,32 @@ from .services.config import config
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
 
+async def get_asset_name(asset_id: str, user_id: str) -> str:
+    """
+    Get the human-readable name for an asset ID.
+
+    Args:
+        asset_id: The Taproot Asset ID to look up
+        user_id: User ID for asset lookup
+
+    Returns:
+        str: Asset name if found, otherwise shortened asset ID
+    """
+    try:
+        from lnbits.extensions.taproot_assets.crud.assets import get_assets
+        assets = await get_assets(user_id)
+
+        for asset in assets:
+            if asset.asset_id == asset_id:
+                return asset.name
+
+        # Fallback to shortened asset ID if not found
+        return f"asset {asset_id[:8]}..."
+    except Exception:
+        # Fallback to shortened asset ID if any error
+        return f"asset {asset_id[:8]}..."
+
+
 def is_asset_enabled_switch(switch: Optional[Switch]) -> bool:
     """
     Check if a switch is configured to accept Taproot Assets.
@@ -224,7 +250,6 @@ async def lnurl_params(
         "callback": f"{callback_url}?variable={variable}",
         "minSendable": price_msat,
         "maxSendable": price_msat,
-        "commentAllowed": config.max_comment_length,
         "metadata": switch.lnurlpay_metadata,
     }
 
@@ -515,11 +540,14 @@ async def handle_taproot_payment(
     bitcoinswitch_payment.asset_id = asset_id
     await update_bitcoinswitch_payment(bitcoinswitch_payment)
 
+    # Get human-readable asset name
+    asset_name = await get_asset_name(asset_id, wallet.user)
+
     return JSONResponse(content={
         "pr": taproot_result["payment_request"],
         "successAction": {
             "tag": "message",
-            "message": f"{asset_amount} units of {asset_id} requested",
+            "message": f"{asset_amount} units of {asset_name} requested",
         },
         "routes": [],
     })
