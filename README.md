@@ -13,6 +13,9 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - Custom payment amounts and durations
 - Optional comment support for payments
 - WebSocket integration for real-time updates
+- Public switch pages
+- Disposable and permanent switches
+- Password protection
 
 ### New Taproot Assets Support
 - Accept Taproot Assets as payment
@@ -49,6 +52,9 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - Duration: How long to activate the switch
 - GPIO Pin: Which pin to control
 - Variable Time: Optional multiplier for amount/duration
+- Disabled: Temporarily disable switch
+- Disposable: Single-use vs reusable switches
+- Password: Optional password protection
 
 ### Taproot Asset Settings
 - Accept Assets: Enable/disable Taproot Asset support
@@ -57,8 +63,9 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - Rate Discovery: Automatic through RFQ system
 
 ## Links
-- [Original Bitcoin Switch Demo](https://bitcoinswitch.lnbits.com)
+- [Bitcoin Switch Demo](https://bitcoinswitch.lnbits.com)
 - [Video Tutorial](https://www.youtube.com/@makerbits7700)
+- [Support Group](https://t.me/makerbits)
 
 ## Support
 For support, please [open an issue on GitHub](https://github.com/echennells/bitcoinswitch_extension/issues).

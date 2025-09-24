@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """
 LNURL endpoints for Bitcoin Switch with Taproot Assets support.
 

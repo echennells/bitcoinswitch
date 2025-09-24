@@ -12,6 +12,9 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - Set custom activation durations
 - Support for multiple switches per device
 - Variable time control based on payment amount
+- Public switch pages
+- Disposable and permanent switches
+- Password protection
 
 ### Taproot Assets Support
 - Accept specific Taproot Assets as payment
@@ -27,8 +30,9 @@ This is an enhanced version of the Bitcoin Switch extension that adds support fo
 - Compatible GPIO device (e.g., Raspberry Pi) for hardware control
 
 ## Demo and Support
-- [Original Bitcoin Switch Demo](https://bitcoinswitch.lnbits.com)
+- [Bitcoin Switch Demo](https://bitcoinswitch.lnbits.com)
 - [Video Tutorial](https://www.youtube.com/@makerbits7700)
+- [Support Group](https://t.me/makerbits)
 - For support, please [open an issue on GitHub](https://github.com/echennells/bitcoinswitch_extension/issues)
 
 `Original Authors: Ben Arc, DNI`

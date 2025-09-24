@@ -19,17 +19,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## 3. No Warranty
 
-The Extension is provided "as is" and with all faults. No warranty of any kind is provided. Use the Extension at your own risk.
+The Extension is provided "as is" and with all faults, and the developer expressly disclaims all warranties of any kind, whether express, implied, statutory, or otherwise, including but not limited to warranties of merchantability, fitness for a particular purpose, non-infringement, and any warranties arising out of course of dealing or usage of trade.
 
 ## 4. Limitation of Liability
 
-In no event shall the authors or copyright holders be liable for any claim, damages, or other liability arising from the use of the Extension.
+In no event will the developer be liable to you or any third party for any direct, indirect, incidental, special, consequential, or punitive damages, including lost profit, lost revenue, loss of data, or other damages arising out of or in connection with your use of the Extension, even if the developer has been advised of the possibility of such damages.
 
 ## 5. Modification of Terms
 
-These Terms may be modified at any time. Changes will be effective when posted in the Extension's repository.
+The developer reserves the right to modify these Terms at any time. You are advised to review these Terms periodically for any changes. Changes to these Terms are effective when they are posted on the appropriate location within or associated with the Extension.
 
-## 6. Support and Contact
+## 6. Contact Information
 
 For support, bug reports, or any other inquiries:
 1. Open an issue on GitHub: https://github.com/echennells/bitcoinswitch_extension/issues

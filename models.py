@@ -16,15 +16,16 @@ from pydantic import BaseModel, Field, validator
 class Switch(BaseModel):
     """
     Individual switch configuration within a Bitcoin Switch device.
-    
+
     Supports both standard Lightning payments and Taproot Asset payments.
     """
-    amount: float = Field(default=0.0, description="Payment amount in currency units")
-    duration: int = Field(default=0, description="Switch activation duration in milliseconds")
-    pin: int = Field(default=0, description="GPIO pin number to control")
-    comment: bool = Field(default=False, description="Whether to allow payment comments")
-    variable: bool = Field(default=False, description="Whether to allow variable time based on payment")
-    label: Optional[str] = Field(default=None, description="Optional display label for the switch")
+    amount: float = 0.0
+    duration: int = 0
+    pin: int = 0
+    comment: bool = False
+    variable: bool = False
+    label: str | None = None
+    # Your Taproot Assets additions
     lnurl: Optional[str] = Field(default=None, description="Generated LNURL for payments")
     accepts_assets: bool = Field(default=False, description="Whether this switch accepts Taproot Assets")
     accepted_asset_ids: List[str] = Field(
@@ -66,10 +67,13 @@ class Switch(BaseModel):
 
 class CreateBitcoinswitch(BaseModel):
     """Parameters for creating a new Bitcoin Switch device."""
-    title: str = Field(..., description="Display name for the switch device")
-    wallet: str = Field(..., description="LNbits wallet ID for payments")
-    currency: str = Field(..., description="Currency for payment amounts (e.g., 'sat', 'USD')")
-    switches: List[Switch] = Field(..., description="List of switch configurations")
+    title: str
+    wallet: str
+    currency: str
+    switches: list[Switch]
+    password: str | None = None
+    disabled: bool = False
+    disposable: bool = True
 
     @validator('switches')
     def must_have_switches(cls, v):
@@ -81,24 +85,24 @@ class CreateBitcoinswitch(BaseModel):
 class Bitcoinswitch(BaseModel):
     """
     Bitcoin Switch device configuration.
-    
+
     Represents a complete switch device with one or more individual switches,
     supporting both Lightning Network and Taproot Asset payments.
     """
-    id: str = Field(..., description="Unique identifier for this device")
-    title: str = Field(..., description="Display name for the device")
-    wallet: str = Field(..., description="LNbits wallet ID for payments")
-    currency: str = Field(..., description="Currency for payment amounts")
-    key: str = Field(..., description="Access key for device control")
-    switches: List[Switch] = Field(..., description="List of configured switches")
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="Timestamp of device creation"
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="Timestamp of last update"
-    )
+    id: str
+    title: str
+    wallet: str
+    currency: str
+    switches: list[Switch]
+    password: str | None = None
+    disabled: bool = False
+    disposable: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # obsolete field, do not use anymore
+    # should be deleted from the database in the future
+    key: str = ""
 
     @property
     def lnurlpay_metadata(self) -> LnurlPayMetadata:
@@ -110,29 +114,19 @@ class Bitcoinswitch(BaseModel):
 class BitcoinswitchPayment(BaseModel):
     """
     Payment record for a switch activation.
-    
+
     Supports both standard Lightning payments and Taproot Asset payments,
     including RFQ (Request for Quote) data for asset payments.
     """
-    # Basic payment fields
-    id: str = Field(..., description="Unique payment identifier")
-    payment_hash: str = Field(..., description="Lightning payment hash")
-    bitcoinswitch_id: str = Field(..., description="ID of the switch being paid")
-    payload: str = Field(..., description="Payment metadata")
-    pin: int = Field(..., description="GPIO pin being controlled")
-    sats: int = Field(..., description="Payment amount in satoshis")
-    
-    # Timestamps
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="Payment creation timestamp"
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="Last update timestamp"
-    )
-    
-    # Taproot Assets fields
+    id: str
+    bitcoinswitch_id: str
+    payment_hash: str
+    pin: int
+    sats: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Your Taproot Assets additions
     is_taproot: bool = Field(
         default=False,
         description="Whether this is a Taproot Asset payment"
@@ -141,7 +135,7 @@ class BitcoinswitchPayment(BaseModel):
         default=None,
         description="Taproot Asset ID if applicable"
     )
-    
+
     # Market maker fields
     quoted_rate: Optional[float] = Field(
         default=None,
@@ -155,7 +149,7 @@ class BitcoinswitchPayment(BaseModel):
         default=None,
         description="Requested asset amount"
     )
-    
+
     # RFQ fields
     rfq_invoice_hash: Optional[str] = Field(
         default=None,
@@ -169,6 +163,10 @@ class BitcoinswitchPayment(BaseModel):
         default=None,
         description="Sat amount from RFQ"
     )
+
+    # TODO: deprecated do not use this field anymore
+    # should be deleted from the database in the future
+    payload: str = ""
 
     @validator('sats')
     def sats_must_be_positive(cls, v):

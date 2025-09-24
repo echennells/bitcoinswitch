@@ -47,51 +47,35 @@ scheduled_tasks: List[asyncio.Task] = []
 def bitcoinswitch_start() -> None:
     """
     Start the Bitcoin Switch extension.
-    
-    Initializes:
-    - Payment processing task
-    - WebSocket handlers
-    - Background processes
-    """
-    try:
-        from lnbits.tasks import create_permanent_unique_task
 
-        task = create_permanent_unique_task(
-            "ext_bitcoinswitch",
-            wait_for_paid_invoices
-        )
+    Initializes background tasks for payment processing and monitoring.
+    Uses LNbits permanent task system for reliability.
+    """
+    from lnbits.tasks import create_permanent_unique_task
+
+    try:
+        task = create_permanent_unique_task("ext_bitcoinswitch", wait_for_paid_invoices)
         scheduled_tasks.append(task)
         logger.info("Bitcoin Switch extension started successfully")
     except Exception as e:
-        logger.error(
-            "Failed to start Bitcoin Switch extension",
-            error=str(e)
-        )
-        raise
+        logger.error(f"Failed to start Bitcoin Switch extension: {e}")
 
 
 def bitcoinswitch_stop() -> None:
     """
     Stop the Bitcoin Switch extension.
-    
-    Cleans up:
-    - Cancels background tasks
-    - Closes connections
-    - Stops payment processing
+
+    Cleanly cancels all background tasks and cleans up resources.
     """
     for task in scheduled_tasks:
         try:
             task.cancel()
-            logger.debug(f"Cancelled task: {task.get_name()}")
-        except Exception as e:
-            logger.warning(
-                "Error cancelling task",
-                task=task.get_name() if task else "Unknown",
-                error=str(e)
-            )
-    
+            logger.debug(f"Cancelled task: {task}")
+        except Exception as ex:
+            logger.warning(f"Error cancelling task: {ex}")
+
     scheduled_tasks.clear()
-    logger.info("Bitcoin Switch extension stopped successfully")
+    logger.info("Bitcoin Switch extension stopped")
 
 
 __all__ = [
