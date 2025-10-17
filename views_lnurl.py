@@ -1,5 +1,3 @@
-# Check if taproot_assets extension is available
-import importlib.util
 import json
 
 from fastapi import APIRouter, Query, Request
@@ -24,17 +22,22 @@ from pydantic import parse_obj_as
 from .crud import create_switch_payment, get_bitcoinswitch
 from .services.config import config
 from .services.rate_service import RateService
-from .services.taproot_integration import create_taproot_invoice, get_asset_name
 
+# Check if taproot_assets extension is available
 try:
-    TAPROOT_AVAILABLE = (
-        importlib.util.find_spec("lnbits.extensions.taproot_assets") is not None
-    )
-except (ModuleNotFoundError, ValueError):
-    TAPROOT_AVAILABLE = False
+    from .services.taproot_integration import create_taproot_invoice, get_asset_name
 
-if not TAPROOT_AVAILABLE:
+    TAPROOT_AVAILABLE = True
+except ImportError:
+    TAPROOT_AVAILABLE = False
     logger.info("Taproot services not available - running in Lightning-only mode")
+
+    # Stub functions when taproot not available
+    async def create_taproot_invoice(*args, **kwargs):  # type: ignore
+        return None
+
+    async def get_asset_name(*args, **kwargs):  # type: ignore
+        return "unknown asset"
 
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
