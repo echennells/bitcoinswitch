@@ -11,14 +11,14 @@ from loguru import logger
 try:
     from lnbits.core.models import Wallet, WalletTypeInfo
     from lnbits.core.models.wallets import KeyType
-    from lnbits.extensions.taproot_assets.models import (
-        TaprootInvoiceRequest,  # type: ignore
+    from lnbits.extensions.taproot_assets.models import (  # type: ignore
+        TaprootInvoiceRequest,
     )
-    from lnbits.extensions.taproot_assets.services.asset_service import (
-        AssetService,  # type: ignore
+    from lnbits.extensions.taproot_assets.services.asset_service import (  # type: ignore
+        AssetService,
     )
-    from lnbits.extensions.taproot_assets.services.invoice_service import (
-        InvoiceService,  # type: ignore
+    from lnbits.extensions.taproot_assets.services.invoice_service import (  # type: ignore
+        InvoiceService,
     )
 
     TAPROOT_AVAILABLE = True
