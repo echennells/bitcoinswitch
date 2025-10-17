@@ -259,7 +259,8 @@
                 :label="formDialog.data.accepts_assets ? 'Amount (assets) *' : 'Amount (' + formDialog.data.currency + ') *'"
               >
                 <q-tooltip v-if="formDialog.data.accepts_assets">
-                  This is the number of assets to request. The invoice will show the sat equivalent at current market rates.
+                  This is the number of assets to request. The invoice will show
+                  the sat equivalent at current market rates.
                 </q-tooltip>
               </q-input>
             </div>
@@ -298,10 +299,11 @@
                 label="Variable"
                 size="xs"
                 dense
-                >
-                <q-tooltip v-if="formDialog.data.accepts_assets">Not supported with Taproot assets</q-tooltip>
-              </q-checkbox
               >
+                <q-tooltip v-if="formDialog.data.accepts_assets"
+                  >Not supported with Taproot assets</q-tooltip
+                >
+              </q-checkbox>
               <q-checkbox
                 v-model="_switch.comment"
                 color="primary"
@@ -325,13 +327,17 @@
               @update:model-value="val => handleAcceptAssetsChange(val)"
             >
               <q-tooltip>
-                When enabled, ALL switches in this Bitcoin Switch will accept taproot assets.
-                The amount field will represent the number of assets (not sats/fiat) for all switches.
+                When enabled, ALL switches in this Bitcoin Switch will accept
+                taproot assets. The amount field will represent the number of
+                assets (not sats/fiat) for all switches.
               </q-tooltip>
             </q-checkbox>
           </div>
         </div>
-        <div class="row q-mt-sm" v-if="formDialog.data.accepts_assets && taprootAssetsAvailable">
+        <div
+          class="row q-mt-sm"
+          v-if="formDialog.data.accepts_assets && taprootAssetsAvailable"
+        >
           <div class="col">
             <q-select
               filled
@@ -350,7 +356,10 @@
                 <q-item v-bind="scope.itemProps">
                   <q-item-section>
                     <q-item-label v-text="scope.opt.name"></q-item-label>
-                    <q-item-label caption v-text="scope.opt.asset_id.substring(0, 16) + '...'"></q-item-label>
+                    <q-item-label
+                      caption
+                      v-text="scope.opt.asset_id.substring(0, 16) + '...'"
+                    ></q-item-label>
                   </q-item-section>
                 </q-item>
               </template>
@@ -413,8 +422,13 @@
       </div>
 
       <!-- Show accepted assets for this Bitcoin switch -->
-      <div v-if="qrCodeDialog.data && qrCodeDialog.data.switches && qrCodeDialog.data.switches.some(s => s.accepts_assets && s.accepted_asset_ids && s.accepted_asset_ids.length > 0)" class="q-mt-md">
-        <div class="text-subtitle2 q-mb-sm">This Bitcoin Switch accepts Taproot Assets:</div>
+      <div
+        v-if="qrCodeDialog.data && qrCodeDialog.data.switches && qrCodeDialog.data.switches.some(s => s.accepts_assets && s.accepted_asset_ids && s.accepted_asset_ids.length > 0)"
+        class="q-mt-md"
+      >
+        <div class="text-subtitle2 q-mb-sm">
+          This Bitcoin Switch accepts Taproot Assets:
+        </div>
         <div class="row q-gutter-sm">
           <q-chip
             v-for="assetId in (qrCodeDialog.data.switches.find(s => s.accepts_assets) || {}).accepted_asset_ids"

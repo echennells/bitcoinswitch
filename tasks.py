@@ -25,7 +25,9 @@ async def on_invoice_paid(payment: Payment) -> None:
     logger.info(f"BitcoinSwitch: Payment extra data: {payment.extra}")
 
     if payment.extra.get("tag") != "Switch":
-        logger.info(f"BitcoinSwitch: Ignoring payment - tag is {payment.extra.get('tag')} not 'Switch'")
+        logger.info(
+            f"BitcoinSwitch: Ignoring payment - tag is {payment.extra.get('tag')} not 'Switch'"
+        )
         return
 
     switch_payment = await get_switch_payment_by_payment_hash(payment.payment_hash)
@@ -53,7 +55,9 @@ async def on_invoice_paid(payment: Payment) -> None:
     duration = _switch.duration
 
     # Variable amounts only supported for Lightning payments
-    if _switch.variable is True and not (hasattr(switch_payment, 'is_taproot') and switch_payment.is_taproot):
+    if _switch.variable is True and not (
+        hasattr(switch_payment, "is_taproot") and switch_payment.is_taproot
+    ):
         duration = round(
             (switch_payment.sats / 1000) / _switch.amount * _switch.duration
         )
@@ -69,7 +73,7 @@ async def on_invoice_paid(payment: Payment) -> None:
         logger.info(f"Wrong password entered for bitcoin switch: {bitcoinswitch.id}")
         return
 
-    logger.info(f"BitcoinSwitch: Sending websocket payload '{payload}' to switch {bitcoinswitch.id}")
-    result = await websocket_manager.send(bitcoinswitch.id, payload)
-    logger.info(f"BitcoinSwitch: Websocket send result: {result}")
-    return result
+    logger.info(
+        f"BitcoinSwitch: Sending websocket payload '{payload}' to switch {bitcoinswitch.id}"
+    )
+    await websocket_manager.send(bitcoinswitch.id, payload)

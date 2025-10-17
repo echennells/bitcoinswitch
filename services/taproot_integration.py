@@ -9,11 +9,17 @@ from loguru import logger
 
 # Try to import taproot assets functionality
 try:
-    from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest  # type: ignore
-    from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService  # type: ignore
-    from lnbits.extensions.taproot_assets.services.asset_service import AssetService  # type: ignore
     from lnbits.core.models import Wallet, WalletTypeInfo
     from lnbits.core.models.wallets import KeyType
+    from lnbits.extensions.taproot_assets.models import (
+        TaprootInvoiceRequest,  # type: ignore
+    )
+    from lnbits.extensions.taproot_assets.services.asset_service import (
+        AssetService,  # type: ignore
+    )
+    from lnbits.extensions.taproot_assets.services.invoice_service import (
+        InvoiceService,  # type: ignore
+    )
 
     TAPROOT_AVAILABLE = True
     logger.info("Taproot Assets extension is available")
@@ -38,8 +44,7 @@ except ImportError as e:
             return []
 
     # Import core models separately for type hints
-    from lnbits.core.models import Wallet, WalletTypeInfo  # type: ignore
-    from lnbits.core.models.wallets import KeyType  # type: ignore
+    from lnbits.core.models import WalletTypeInfo  # type: ignore
 
 
 async def create_rfq_invoice(
@@ -50,7 +55,7 @@ async def create_rfq_invoice(
     user_id: str,
     extra: dict,
     peer_pubkey: str | None = None,
-    expiry: int | None = None
+    expiry: int | None = None,
 ) -> tuple[dict | None, str | None]:
     """
     Create a Taproot Asset invoice using RFQ (Request for Quote) process.
@@ -72,14 +77,12 @@ async def create_rfq_invoice(
             description=description,
             expiry=expiry or 3600,
             peer_pubkey=peer_pubkey,
-            extra=extra or {}
+            extra=extra or {},
         )
 
         # Use InvoiceService directly from taproot_assets extension
         invoice_response = await InvoiceService.create_invoice(
-            data=invoice_request,
-            user_id=user_id,
-            wallet_id=wallet_id
+            data=invoice_request, user_id=user_id, wallet_id=wallet_id
         )
 
         # Return in original format (tuple with result and error)
@@ -87,7 +90,7 @@ async def create_rfq_invoice(
             "payment_hash": invoice_response.payment_hash,
             "payment_request": invoice_response.payment_request,
             "checking_id": invoice_response.checking_id,
-            "is_rfq": True
+            "is_rfq": True,
         }
 
         return result, None
@@ -105,7 +108,7 @@ async def create_taproot_invoice(
     user_id: str,
     expiry: int | None = None,
     peer_pubkey: str | None = None,
-    extra: dict | None = None
+    extra: dict | None = None,
 ) -> dict | None:
     """Create a Taproot Asset invoice using the taproot_assets extension."""
     # Use the working RFQ method internally
@@ -117,7 +120,7 @@ async def create_taproot_invoice(
         user_id=user_id,
         extra=extra or {},
         peer_pubkey=peer_pubkey,
-        expiry=expiry
+        expiry=expiry,
     )
 
     if error:

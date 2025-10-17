@@ -174,8 +174,10 @@ window.app = Vue.createApp({
     processFormData(data) {
       // Filter out undefined/null/empty values
       const updatedData = Object.entries(data)
-        .filter(([_, value]) => value !== undefined && value !== null && value !== '')
-        .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {})
+        .filter(
+          ([_, value]) => value !== undefined && value !== null && value !== ''
+        )
+        .reduce((acc, [key, value]) => ({...acc, [key]: value}), {})
 
       // Apply global taproot settings if needed
       if (data.accepts_assets && data.switches) {
@@ -280,8 +282,10 @@ window.app = Vue.createApp({
       // Extract global taproot settings from first switch (UI enforces consistency across all switches)
       if (bitcoinswitch.switches?.length > 0) {
         const firstSwitch = bitcoinswitch.switches[0]
-        this.formDialog.data.accepts_assets = firstSwitch.accepts_assets || false
-        this.formDialog.data.accepted_asset_ids = firstSwitch.accepted_asset_ids || []
+        this.formDialog.data.accepts_assets =
+          firstSwitch.accepts_assets || false
+        this.formDialog.data.accepted_asset_ids =
+          firstSwitch.accepted_asset_ids || []
       }
 
       this.formDialog.show = true
@@ -305,7 +309,9 @@ window.app = Vue.createApp({
       // Update all switches to use global setting
       this.formDialog.data.switches.forEach(sw => {
         sw.accepts_assets = val
-        sw.accepted_asset_ids = val ? this.formDialog.data.accepted_asset_ids : []
+        sw.accepted_asset_ids = val
+          ? this.formDialog.data.accepted_asset_ids
+          : []
         // Variable amounts not supported for taproot assets
         if (val) {
           sw.variable = false
@@ -358,16 +364,17 @@ window.app = Vue.createApp({
     },
 
     hasTaprootAssets(bitcoinswitch) {
-      return bitcoinswitch.switches?.some(s =>
-        s.accepts_assets && s.accepted_asset_ids?.length > 0
+      return bitcoinswitch.switches?.some(
+        s => s.accepts_assets && s.accepted_asset_ids?.length > 0
       )
     },
 
     getAssetName(assetIdOrObject) {
       // Handle both asset_id string and full asset object
-      const assetId = typeof assetIdOrObject === 'string'
-        ? assetIdOrObject
-        : assetIdOrObject?.asset_id
+      const assetId =
+        typeof assetIdOrObject === 'string'
+          ? assetIdOrObject
+          : assetIdOrObject?.asset_id
 
       if (!assetId) return 'Unknown Asset'
 

@@ -18,16 +18,18 @@ Key features:
 - Rate expiration management (default: 5 minutes)
 - Graceful fallback when taproot_assets unavailable
 """
+
 # Standard library imports
 from datetime import datetime, timedelta, timezone
 
 # Third-party imports
 import httpx
-from loguru import logger
 
 # Local/LNbits imports
 from lnbits.core.crud import get_wallet
 from lnbits.settings import settings
+from loguru import logger
+
 from .config import config
 
 
@@ -45,10 +47,7 @@ class RateService:
 
     @staticmethod
     async def get_current_rate(
-        asset_id: str,
-        wallet_id: str,
-        user_id: str,
-        asset_amount: int = 1
+        asset_id: str, wallet_id: str, user_id: str, asset_amount: int = 1
     ) -> float | None:
         """
         Get current exchange rate for an asset using RFQ quote.
@@ -96,9 +95,11 @@ class RateService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     url,
-                    params={"amount": 1},  # Always request rate for 1 unit to get per-unit rate
+                    params={
+                        "amount": 1
+                    },  # Always request rate for 1 unit to get per-unit rate
                     headers={"X-Api-Key": wallet.adminkey},
-                    timeout=config.http_timeout
+                    timeout=config.http_timeout,
                 )
 
                 if response.status_code == 200:
@@ -106,13 +107,19 @@ class RateService:
 
                     if data.get("rate_per_unit"):
                         rate = data["rate_per_unit"]
-                        logger.info(f"Got rate for asset {asset_id[:8]}...: {rate} sats/unit")
+                        logger.info(
+                            f"Got rate for asset {asset_id[:8]}...: {rate} sats/unit"
+                        )
                         return rate
                     else:
-                        logger.warning(f"No rate returned for asset {asset_id[:8]}...: {data.get('error', 'Unknown error')}")
+                        logger.warning(
+                            f"No rate returned for asset {asset_id[:8]}...: {data.get('error', 'Unknown error')}"
+                        )
                         return None
                 else:
-                    logger.error(f"Rate API request failed with status {response.status_code}: {response.text}")
+                    logger.error(
+                        f"Rate API request failed with status {response.status_code}: {response.text}"
+                    )
                     return None
 
         except Exception as e:
@@ -121,9 +128,7 @@ class RateService:
 
     @staticmethod
     def is_rate_within_tolerance(
-        quoted_rate: float,
-        current_rate: float,
-        tolerance: float | None = None
+        quoted_rate: float, current_rate: float, tolerance: float | None = None
     ) -> bool:
         """
         Check if current rate is within acceptable tolerance of quoted rate.
