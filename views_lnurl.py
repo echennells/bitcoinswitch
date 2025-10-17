@@ -283,8 +283,8 @@ async def handle_taproot_payment(
     try:
         from lnbits.core.models import WalletTypeInfo
         from lnbits.core.models.wallets import KeyType
-        from lnbits.extensions.taproot_assets.services.asset_service import (
-            AssetService,  # type: ignore
+        from lnbits.extensions.taproot_assets.services.asset_service import (  # type: ignore
+            AssetService,
         )
 
         wallet_info = WalletTypeInfo(key_type=KeyType.admin, wallet=wallet)
@@ -390,8 +390,8 @@ async def calculate_asset_amount_with_rfq(
 
             # Get asset decimal places from channel data (more reliable than AssetService)
             try:
-                from lnbits.extensions.taproot_assets.tapd.taproot_factory import (
-                    TaprootAssetsFactory,  # type: ignore
+                from lnbits.extensions.taproot_assets.tapd.taproot_factory import (  # type: ignore
+                    TaprootAssetsFactory,
                 )
 
                 # Get a taproot wallet instance to access channel data
