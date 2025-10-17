@@ -123,7 +123,7 @@ class RateService:
     def is_rate_within_tolerance(
         quoted_rate: float,
         current_rate: float,
-        tolerance: float = None
+        tolerance: float | None = None
     ) -> bool:
         """
         Check if current rate is within acceptable tolerance of quoted rate.

@@ -9,9 +9,9 @@ from loguru import logger
 
 # Try to import taproot assets functionality
 try:
-    from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest
-    from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService
-    from lnbits.extensions.taproot_assets.services.asset_service import AssetService
+    from lnbits.extensions.taproot_assets.models import TaprootInvoiceRequest  # type: ignore
+    from lnbits.extensions.taproot_assets.services.invoice_service import InvoiceService  # type: ignore
+    from lnbits.extensions.taproot_assets.services.asset_service import AssetService  # type: ignore
     from lnbits.core.models import Wallet, WalletTypeInfo
     from lnbits.core.models.wallets import KeyType
 
@@ -23,18 +23,23 @@ except ImportError as e:
     logger.info(f"Taproot Assets extension not available: {e}")
 
     # Provide stub classes/functions when not available
-    class TaprootInvoiceRequest:
-        pass
+    class TaprootInvoiceRequest:  # type: ignore
+        def __init__(self, **kwargs):
+            pass
 
-    class InvoiceService:
+    class InvoiceService:  # type: ignore
         @staticmethod
         async def create_invoice(*args, **kwargs):
             raise Exception("Taproot Assets extension not installed")
 
-    class AssetService:
+    class AssetService:  # type: ignore
         @staticmethod
         async def list_assets(*args, **kwargs):
             return []
+
+    # Import core models separately for type hints
+    from lnbits.core.models import Wallet, WalletTypeInfo  # type: ignore
+    from lnbits.core.models.wallets import KeyType  # type: ignore
 
 
 async def create_rfq_invoice(

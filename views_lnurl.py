@@ -28,7 +28,7 @@ from .services.taproot_integration import (
 from .services.rate_service import RateService
 from .services.config import config
 # Check if taproot_assets extension is available
-import importlib
+import importlib.util
 TAPROOT_AVAILABLE = importlib.util.find_spec("lnbits.extensions.taproot_assets") is not None
 
 if not TAPROOT_AVAILABLE:
@@ -247,7 +247,7 @@ async def handle_taproot_payment(switch, _switch, switch_id, pin, amount, commen
     # Get peer_pubkey from asset channel info (like the direct UI does)
     peer_pubkey = None
     try:
-        from lnbits.extensions.taproot_assets.services.asset_service import AssetService
+        from lnbits.extensions.taproot_assets.services.asset_service import AssetService  # type: ignore
         from lnbits.core.models import WalletTypeInfo
         from lnbits.core.models.wallets import KeyType
 
@@ -346,8 +346,8 @@ async def calculate_asset_amount_with_rfq(
 
             # Get asset decimal places from channel data (more reliable than AssetService)
             try:
-                from lnbits.extensions.taproot_assets.tapd.taproot_assets import TaprootAssets
-                from lnbits.extensions.taproot_assets.tapd.taproot_factory import TaprootAssetsFactory
+                from lnbits.extensions.taproot_assets.tapd.taproot_assets import TaprootAssets  # type: ignore
+                from lnbits.extensions.taproot_assets.tapd.taproot_factory import TaprootAssetsFactory  # type: ignore
 
                 # Get a taproot wallet instance to access channel data
                 taproot_wallet = await TaprootAssetsFactory.create_wallet(
