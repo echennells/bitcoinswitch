@@ -59,7 +59,7 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         else float(_switch.amount)
     )
 
-    # If this switch accepts assets, we need to convert asset amount to sats using RFQ rate
+    # Convert asset amount to sats using RFQ rate if switch accepts assets
     if (
         TAPROOT_AVAILABLE
         and hasattr(_switch, "accepts_assets")
@@ -271,7 +271,7 @@ async def handle_taproot_payment(
     # The switch is configured for the correct asset amount
     asset_amount = int(_switch.amount)
 
-    # TODO: Add logic to detect Lightning vs direct asset payments and use RFQ only for Lightning
+    # TODO: detect Lightning vs direct asset payments, use RFQ for Lightning only
 
     logger.info("TAPROOT PAYMENT:")
     logger.info(f"  - Amount parameter: {amount} msat")
@@ -388,7 +388,7 @@ async def calculate_asset_amount_with_rfq(
                 f"RFQ rate calculation: {requested_sats} sats / {current_rate} sats/display_unit = {display_units} display_units"
             )
 
-            # Get asset decimal places from channel data (more reliable than AssetService)
+            # Get asset decimal places from channel data (more reliable)
             try:
                 from lnbits.extensions.taproot_assets.tapd.taproot_factory import (  # type: ignore
                     TaprootAssetsFactory,
@@ -414,7 +414,7 @@ async def calculate_asset_amount_with_rfq(
                         )
                         break
 
-                # Return display units directly - taproot assets invoice service expects display units
+                # Return display units - taproot assets invoice expects them
                 logger.info(
                     f"Using {display_units} display_units for invoice (asset has {asset_decimals} decimals)"
                 )
@@ -422,7 +422,7 @@ async def calculate_asset_amount_with_rfq(
 
             except Exception as e:
                 logger.warning(f"Could not get asset decimals from channel data: {e}")
-                # Return display units directly - taproot assets invoice service expects display units
+                # Return display units - taproot assets invoice expects them
                 logger.info(
                     f"Using {display_units} display_units for invoice (fallback)"
                 )

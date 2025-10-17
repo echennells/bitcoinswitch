@@ -57,12 +57,12 @@ class RateService:
         current market rate for the specified asset.
 
         Why this is needed:
-            When a user scans a BitcoinSwitch LNURL QR code that accepts Taproot Assets,
-            their Lightning wallet needs to know "how many sats is this worth?" to display
-            the payment amount. The switch is configured in asset units (e.g., "5 USDT"),
-            but LNURL responses must specify amounts in millisatoshis. This rate fetch
-            converts asset amounts to sat amounts at the current market rate, allowing
-            the user's wallet to show the correct payment value before they confirm.
+            When a user scans a BitcoinSwitch LNURL QR code accepting Taproot Assets,
+            their Lightning wallet needs to know "how many sats?" to display the
+            payment amount. The switch is in asset units (e.g., "5 USDT"), but
+            LNURL responses must specify millisatoshis. This rate fetch converts
+            asset amounts to sat amounts at current market rate, allowing the
+            user's wallet to show the correct payment value before they confirm.
 
         Args:
             asset_id: The Taproot Asset ID to get the rate for

@@ -9,8 +9,7 @@ from loguru import logger
 
 # Try to import taproot assets functionality
 try:
-    from lnbits.core.models import Wallet, WalletTypeInfo
-    from lnbits.core.models.wallets import KeyType
+    from lnbits.core.models import WalletTypeInfo
     from lnbits.extensions.taproot_assets.models import (  # type: ignore
         TaprootInvoiceRequest,
     )
