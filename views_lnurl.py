@@ -26,9 +26,12 @@ from .services.config import config
 from .services.rate_service import RateService
 from .services.taproot_integration import create_taproot_invoice, get_asset_name
 
-TAPROOT_AVAILABLE = (
-    importlib.util.find_spec("lnbits.extensions.taproot_assets") is not None
-)
+try:
+    TAPROOT_AVAILABLE = (
+        importlib.util.find_spec("lnbits.extensions.taproot_assets") is not None
+    )
+except (ModuleNotFoundError, ValueError):
+    TAPROOT_AVAILABLE = False
 
 if not TAPROOT_AVAILABLE:
     logger.info("Taproot services not available - running in Lightning-only mode")
