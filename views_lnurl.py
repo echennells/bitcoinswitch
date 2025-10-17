@@ -39,6 +39,7 @@ except ImportError:
     async def get_asset_name(*args, **kwargs):  # type: ignore
         return "unknown asset"
 
+
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
 
