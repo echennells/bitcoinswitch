@@ -29,14 +29,25 @@ try:
 
     TAPROOT_AVAILABLE = True
 except ImportError:
+    from lnbits.core.models import WalletTypeInfo
+
     TAPROOT_AVAILABLE = False
     logger.info("Taproot services not available - running in Lightning-only mode")
 
     # Stub functions when taproot not available
-    async def create_taproot_invoice(*args, **kwargs) -> dict | None:
+    async def create_taproot_invoice(
+        asset_id: str,
+        amount: int,
+        description: str,
+        wallet_id: str,
+        user_id: str,
+        expiry: int | None = None,
+        peer_pubkey: str | None = None,
+        extra: dict | None = None,
+    ) -> dict | None:
         return None
 
-    async def get_asset_name(*args, **kwargs) -> str:
+    async def get_asset_name(asset_id: str, wallet_info: WalletTypeInfo) -> str:
         return "unknown asset"
 
 
