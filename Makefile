@@ -2,7 +2,7 @@ all: format check
 
 format: prettier black ruff
 
-check: mypy checkblack checkruff checkprettier
+check: mypy pyright checkblack checkruff checkprettier
 
 prettier:
 	uv run ./node_modules/.bin/prettier --write .
