@@ -22,33 +22,14 @@ from pydantic import parse_obj_as
 from .crud import create_switch_payment, get_bitcoinswitch
 from .services.config import config
 from .services.rate_service import RateService
+from .services.taproot_integration import (
+    TAPROOT_AVAILABLE,
+    create_taproot_invoice,
+    get_asset_name,
+)
 
-# Check if taproot_assets extension is available
-try:
-    from .services.taproot_integration import create_taproot_invoice, get_asset_name
-
-    TAPROOT_AVAILABLE = True
-except ImportError:
-    from lnbits.core.models import WalletTypeInfo
-
-    TAPROOT_AVAILABLE = False
+if not TAPROOT_AVAILABLE:
     logger.info("Taproot services not available - running in Lightning-only mode")
-
-    # Stub functions when taproot not available
-    async def create_taproot_invoice(
-        asset_id: str,
-        amount: int,
-        description: str,
-        wallet_id: str,
-        user_id: str,
-        expiry: int | None = None,
-        peer_pubkey: str | None = None,
-        extra: dict | None = None,
-    ) -> dict | None:
-        return None
-
-    async def get_asset_name(asset_id: str, wallet_info: WalletTypeInfo) -> str:
-        return "unknown asset"
 
 
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
