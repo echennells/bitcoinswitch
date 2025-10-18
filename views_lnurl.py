@@ -33,10 +33,10 @@ except ImportError:
     logger.info("Taproot services not available - running in Lightning-only mode")
 
     # Stub functions when taproot not available
-    async def create_taproot_invoice(*args, **kwargs) -> dict | None:  # type: ignore
+    async def create_taproot_invoice(*args, **kwargs) -> dict | None:
         return None
 
-    async def get_asset_name(*args, **kwargs) -> str:  # type: ignore
+    async def get_asset_name(*args, **kwargs) -> str:
         return "unknown asset"
 
 
