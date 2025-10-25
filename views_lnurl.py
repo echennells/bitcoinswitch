@@ -58,6 +58,11 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         else float(_switch.amount)
     )
 
+    # DEBUG-0: Track object identities and initial state
+    logger.info(f"DEBUG-0: switch object id={id(switch)}, _switch id={id(_switch)}")
+    logger.info(f"DEBUG-0: _switch.amount={_switch.amount}, switch.currency={switch.currency}")
+    logger.info(f"DEBUG-0: Initial base_amount_sats={base_amount_sats}, type={type(base_amount_sats)}")
+
     # Convert asset amount to sats using RFQ rate if switch accepts assets
     if (
         TAPROOT_AVAILABLE
@@ -78,12 +83,19 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
             # Get wallet for rate lookup
             wallet = await get_wallet(switch.wallet)
             if wallet:
+                # DEBUG-TIMING: Track RFQ call duration
+                import time
+                rfq_start = time.time()
+
                 current_rate = await RateService.get_current_rate(
                     asset_id=asset_id,
                     wallet_id=switch.wallet,
                     user_id=wallet.user,
                     asset_amount=int(_switch.amount),
                 )
+
+                rfq_duration = time.time() - rfq_start
+                logger.info(f"DEBUG-TIMING: RFQ took {rfq_duration:.3f}s")
 
                 if current_rate and current_rate > 0:
                     # Convert asset amount to sats using RFQ rate
@@ -93,6 +105,10 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
                         f"Asset switch pricing: {asset_amount_display_units} {asset_id[:8]}... = {sats_required} sats (rate: {current_rate} sats/display_unit)"
                     )
                     base_amount_sats = sats_required
+
+                    # DEBUG-RFQ: Snapshot the value immediately after assignment
+                    base_amount_snapshot = base_amount_sats
+                    logger.info(f"DEBUG-RFQ: Snapshot taken - base_amount_snapshot={base_amount_snapshot}")
                 else:
                     logger.warning(
                         f"No valid RFQ rate for asset {asset_id}, using configured amount as sats"
@@ -107,7 +123,21 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
                 f"Failed to get RFQ rate for asset switch pricing: {e}, using configured amount as sats"
             )
 
+    # DEBUG-1.5: Check if objects were replaced after RFQ
+    logger.info(f"DEBUG-1.5: switch object id={id(switch)}, _switch id={id(_switch)} (checking for object replacement)")
+
+    # DEBUG-1: Log state before price_msat calculation
+    logger.info(f"DEBUG-1: base_amount_sats={base_amount_sats}, type={type(base_amount_sats)}")
+    logger.info(f"DEBUG-1: _switch.amount={_switch.amount}, switch.currency={switch.currency}")
+
+    # DEBUG-COMPARE: Check if snapshot matches (only if we have a snapshot from RFQ path)
+    if 'base_amount_snapshot' in locals():
+        logger.info(f"DEBUG-COMPARE: base_amount_sats={base_amount_sats}, snapshot={base_amount_snapshot}, match={base_amount_sats == base_amount_snapshot}")
+
     price_msat = int(base_amount_sats * 1000)
+
+    # DEBUG-2: Log immediately after price_msat calculation
+    logger.info(f"DEBUG-2: price_msat={price_msat}")
     # let the max be 100x the min if variable pricing is enabled
     # Variable amounts not supported for taproot assets
     variable_enabled = _switch.variable and not (
@@ -148,8 +178,33 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         maxSendable=MilliSatoshi(max_sendable),
         metadata=LnurlPayMetadata(json.dumps([["text/plain", switch.title]])),
     )
+
+    # DEBUG-3: Log response creation
+    logger.info(f"DEBUG-3: Response created - minSendable={res.minSendable}, maxSendable={res.maxSendable}")
+    logger.info(f"DEBUG-3: Raw price_msat={price_msat}, MilliSatoshi conversion={MilliSatoshi(price_msat)}")
+
     if _switch.comment is True:
         res.commentAllowed = 255
+
+    # DEBUG-4: Final check before return
+    logger.info(f"DEBUG-4: About to return response - minSendable={res.minSendable}")
+
+    # CRITICAL VALIDATION: Prevent 1000x underpricing bug
+    # For asset switches, minSendable should typically be >= 100,000 msat (100 sats)
+    # If it's suspiciously low, log critical error
+    if (
+        TAPROOT_AVAILABLE
+        and hasattr(_switch, "accepts_assets")
+        and _switch.accepts_assets
+        and res.minSendable < 100000
+    ):
+        logger.error(
+            f"CRITICAL: Suspiciously low minSendable={res.minSendable} for asset switch! "
+            f"Expected ~1,000,000 msat. This may be the 1000x underpricing bug. "
+            f"Switch ID: {bitcoinswitch_id}, Pin: {pin}"
+        )
+        # Optional: Uncomment to prevent undercharging by raising an exception
+        # raise ValueError(f"Preventing potential 1000x underpricing: minSendable={res.minSendable} is too low")
 
     return res
 
