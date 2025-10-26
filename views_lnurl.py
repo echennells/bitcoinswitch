@@ -234,6 +234,51 @@ async def lnurl_callback(
     if not switch.disposable and not websocket_manager.has_connection(switch_id):
         return LnurlErrorResponse(reason="No active bitcoinswitch connections.")
 
+    # CRITICAL: Validate amount against expected min/max to prevent undercharging
+    # Recalculate expected amount using same logic as lnurl_params
+    expected_base_sats = (
+        await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
+        if switch.currency != "sat"
+        else float(_switch.amount)
+    )
+
+    # If switch accepts assets, convert using RFQ rate
+    if (
+        TAPROOT_AVAILABLE
+        and hasattr(_switch, "accepts_assets")
+        and _switch.accepts_assets
+        and _switch.accepted_asset_ids
+    ):
+        try:
+            from .services.rate_service import RateService
+            wallet = await get_wallet(switch.wallet)
+            if wallet:
+                asset_id_for_rate = _switch.accepted_asset_ids[0]
+                current_rate = await RateService.get_current_rate(
+                    asset_id=asset_id_for_rate,
+                    wallet_id=switch.wallet,
+                    user_id=wallet.user,
+                    asset_amount=int(_switch.amount),
+                )
+                if current_rate and current_rate > 0:
+                    expected_base_sats = float(_switch.amount) * current_rate
+                    logger.info(f"CALLBACK VALIDATION: Expected {expected_base_sats} sats based on RFQ rate {current_rate}")
+        except Exception as e:
+            logger.warning(f"Failed to get RFQ rate for callback validation: {e}")
+
+    expected_msat = int(expected_base_sats * 1000)
+    logger.info(f"CALLBACK VALIDATION: Received amount={amount} msat, expected={expected_msat} msat")
+
+    # Validate amount (allow 1% tolerance for rounding)
+    if amount < expected_msat * 0.99:
+        logger.error(
+            f"CRITICAL: Amount {amount} is below expected {expected_msat}! "
+            f"This is the 1000x undercharging bug. Rejecting payment."
+        )
+        return LnurlErrorResponse(
+            reason=f"Amount {amount} msat is below minimum {expected_msat} msat"
+        )
+
     # Check for Taproot Asset payment
     logger.info(
         f"TAPROOT CHECK: TAPROOT_AVAILABLE={TAPROOT_AVAILABLE}, asset_id={asset_id}"
