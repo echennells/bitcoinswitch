@@ -267,17 +267,22 @@ async def lnurl_callback(
             logger.warning(f"Failed to get RFQ rate for callback validation: {e}")
 
     expected_msat = int(expected_base_sats * 1000)
-    logger.info(f"CALLBACK VALIDATION: Received amount={amount} msat, expected={expected_msat} msat")
+    logger.info(f"CALLBACK VALIDATION: Received amount={amount} msat, expected={expected_msat} msat, asset_id={asset_id}")
 
     # Validate amount (allow 1% tolerance for rounding)
-    if amount < expected_msat * 0.99:
-        logger.error(
-            f"CRITICAL: Amount {amount} is below expected {expected_msat}! "
-            f"This is the 1000x undercharging bug. Rejecting payment."
-        )
-        return LnurlErrorResponse(
-            reason=f"Amount {amount} msat is below minimum {expected_msat} msat"
-        )
+    # SKIP validation for Taproot asset payments as amount semantics differ
+    # (Assets have their own units - 1 asset could be worth 1000 sats or 0.001 sats)
+    if asset_id:
+        logger.info(f"CALLBACK VALIDATION: Skipping amount validation for Taproot asset payment (asset_id={asset_id})")
+    else:
+        if amount < expected_msat * 0.99:
+            logger.error(
+                f"CRITICAL: Amount {amount} is below expected {expected_msat}! "
+                f"This is the 1000x undercharging bug. Rejecting payment."
+            )
+            return LnurlErrorResponse(
+                reason=f"Amount {amount} msat is below minimum {expected_msat} msat"
+            )
 
     # Check for Taproot Asset payment
     logger.info(
