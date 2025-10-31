@@ -65,7 +65,7 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
     request_timestamp = time.time()
 
     logger.info(f"[LNURL-PARAMS-{request_id}] START at {request_timestamp:.3f}")
-    logger.info(f"[LNURL-PARAMS-{request_id}] switch_id={switch_id}, pin={pin}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] switch_id={bitcoinswitch_id}, pin={pin}")
 
     # DEBUG-0: Track object identities and initial state
     logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-0: switch object id={id(switch)}, _switch id={id(_switch)}")
