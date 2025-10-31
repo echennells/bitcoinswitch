@@ -58,10 +58,19 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         else float(_switch.amount)
     )
 
+    # TIMING CORRELATION: Generate request ID to track params → callback flow
+    import time
+    import secrets
+    request_id = secrets.token_hex(4)
+    request_timestamp = time.time()
+
+    logger.info(f"[LNURL-PARAMS-{request_id}] START at {request_timestamp:.3f}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] switch_id={switch_id}, pin={pin}")
+
     # DEBUG-0: Track object identities and initial state
-    logger.info(f"DEBUG-0: switch object id={id(switch)}, _switch id={id(_switch)}")
-    logger.info(f"DEBUG-0: _switch.amount={_switch.amount}, switch.currency={switch.currency}")
-    logger.info(f"DEBUG-0: Initial base_amount_sats={base_amount_sats}, type={type(base_amount_sats)}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-0: switch object id={id(switch)}, _switch id={id(_switch)}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-0: _switch.amount={_switch.amount}, switch.currency={switch.currency}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-0: Initial base_amount_sats={base_amount_sats}, type={type(base_amount_sats)}")
 
     # Convert asset amount to sats using RFQ rate if switch accepts assets
     if (
@@ -151,6 +160,9 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
     )
     callback_url_str = str(base_url)
 
+    # Add request_id to callback URL for timing correlation
+    callback_url_str += f"?req_id={request_id}&ts={int(request_timestamp * 1000)}"
+
     # Encode Taproot Asset support in callback URL parameters
     if (
         TAPROOT_AVAILABLE
@@ -158,11 +170,11 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         and _switch.accepts_assets
     ):
         if _switch.accepted_asset_ids:
-            # Encode asset support in URL parameters
+            # Encode asset support in URL parameters (use & since we already have ?req_id)
             asset_ids_param = "|".join(_switch.accepted_asset_ids)
-            callback_url_str += f"?supports_assets=true&asset_ids={asset_ids_param}"
+            callback_url_str += f"&supports_assets=true&asset_ids={asset_ids_param}"
             logger.info(
-                f"Switch {bitcoinswitch_id} callback URL encoded with taproot assets: {_switch.accepted_asset_ids}"
+                f"[LNURL-PARAMS-{request_id}] Switch {bitcoinswitch_id} callback URL encoded with taproot assets: {_switch.accepted_asset_ids}"
             )
 
     try:
@@ -179,9 +191,10 @@ async def lnurl_params(request: Request, bitcoinswitch_id: str, pin: str):
         metadata=LnurlPayMetadata(json.dumps([["text/plain", switch.title]])),
     )
 
-    # DEBUG-3: Log response creation
-    logger.info(f"DEBUG-3: Response created - minSendable={res.minSendable}, maxSendable={res.maxSendable}")
-    logger.info(f"DEBUG-3: Raw price_msat={price_msat}, MilliSatoshi conversion={MilliSatoshi(price_msat)}")
+    # DEBUG-3: Log response creation with timing
+    logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-3: Response created - minSendable={res.minSendable}, maxSendable={res.maxSendable}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] DEBUG-3: Raw price_msat={price_msat}, MilliSatoshi conversion={MilliSatoshi(price_msat)}")
+    logger.info(f"[LNURL-PARAMS-{request_id}] EXPECT CALLBACK WITH: amount={price_msat} msat")
 
     if _switch.comment is True:
         res.commentAllowed = 255
@@ -216,7 +229,24 @@ async def lnurl_callback(
     amount: int | None = Query(None),
     comment: str | None = Query(None),
     asset_id: str | None = Query(None),
+    req_id: str | None = Query(None),  # Correlation ID from lnurl_params
+    ts: int | None = Query(None),  # Timestamp from lnurl_params (milliseconds)
 ) -> LnurlPayActionResponse | LnurlErrorResponse:
+    # TIMING CORRELATION: Track timing between params and callback
+    import time
+    callback_timestamp = time.time()
+    time_since_params = None
+    if ts:
+        params_timestamp_sec = ts / 1000.0
+        time_since_params = callback_timestamp - params_timestamp_sec
+
+    correlation_id = req_id or "UNKNOWN"
+    logger.info(f"[LNURL-CALLBACK-{correlation_id}] START at {callback_timestamp:.3f}")
+    logger.info(f"[LNURL-CALLBACK-{correlation_id}] switch_id={switch_id}, pin={pin}")
+    logger.info(f"[LNURL-CALLBACK-{correlation_id}] RECEIVED: amount={amount} msat, asset_id={asset_id}")
+    if time_since_params is not None:
+        logger.info(f"[LNURL-CALLBACK-{correlation_id}] TIME SINCE PARAMS: {time_since_params:.3f}s")
+
     if comment and len(comment) > 255:
         return LnurlErrorResponse(reason="Comment too long, max 255 characters.")
     if not amount:
@@ -262,23 +292,33 @@ async def lnurl_callback(
                 )
                 if current_rate and current_rate > 0:
                     expected_base_sats = float(_switch.amount) * current_rate
-                    logger.info(f"CALLBACK VALIDATION: Expected {expected_base_sats} sats based on RFQ rate {current_rate}")
+                    logger.info(f"[LNURL-CALLBACK-{correlation_id}] VALIDATION: Expected {expected_base_sats} sats based on RFQ rate {current_rate}")
         except Exception as e:
-            logger.warning(f"Failed to get RFQ rate for callback validation: {e}")
+            logger.warning(f"[LNURL-CALLBACK-{correlation_id}] Failed to get RFQ rate for callback validation: {e}")
 
     expected_msat = int(expected_base_sats * 1000)
-    logger.info(f"CALLBACK VALIDATION: Received amount={amount} msat, expected={expected_msat} msat, asset_id={asset_id}")
+    logger.info(f"[LNURL-CALLBACK-{correlation_id}] VALIDATION: Received amount={amount} msat, expected={expected_msat} msat, asset_id={asset_id}")
+
+    # TIMING DIAGNOSIS: Log the difference to help identify timing issues
+    if amount != expected_msat:
+        msat_diff = amount - expected_msat
+        msat_ratio = amount / expected_msat if expected_msat > 0 else 0
+        logger.warning(
+            f"[LNURL-CALLBACK-{correlation_id}] AMOUNT MISMATCH! "
+            f"Received={amount}, Expected={expected_msat}, "
+            f"Diff={msat_diff}, Ratio={msat_ratio:.6f}"
+        )
 
     # Validate amount (allow 1% tolerance for rounding)
     # SKIP validation for Taproot asset payments as amount semantics differ
     # (Assets have their own units - 1 asset could be worth 1000 sats or 0.001 sats)
     if asset_id:
-        logger.info(f"CALLBACK VALIDATION: Skipping amount validation for Taproot asset payment (asset_id={asset_id})")
+        logger.info(f"[LNURL-CALLBACK-{correlation_id}] VALIDATION: Skipping for Taproot asset payment (asset_id={asset_id})")
     else:
         if amount < expected_msat * 0.99:
             logger.error(
-                f"CRITICAL: Amount {amount} is below expected {expected_msat}! "
-                f"This is the 1000x undercharging bug. Rejecting payment."
+                f"[LNURL-CALLBACK-{correlation_id}] CRITICAL: Amount {amount} is below expected {expected_msat}! "
+                f"This is the 1000x undercharging bug. REJECTING PAYMENT."
             )
             return LnurlErrorResponse(
                 reason=f"Amount {amount} msat is below minimum {expected_msat} msat"
