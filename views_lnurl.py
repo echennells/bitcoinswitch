@@ -176,6 +176,52 @@ async def lnurl_callback(
     if not _switch:
         return LnurlErrorResponse(reason=f"Switch with pin {pin} not found.")
 
+    # Validate amount against min/max constraints (security fix for LNURL-pay)
+    # Recalculate the expected price using same logic as lnurl_params
+    base_amount_sats = (
+        await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
+        if switch.currency != "sat"
+        else float(_switch.amount)
+    )
+
+    # Convert asset amount to sats using RFQ rate if switch accepts assets
+    if (
+        TAPROOT_AVAILABLE
+        and hasattr(_switch, "accepts_assets")
+        and _switch.accepts_assets
+        and _switch.accepted_asset_ids
+    ):
+        try:
+            asset_id_for_rate = _switch.accepted_asset_ids[0]
+            wallet = await get_wallet(switch.wallet)
+            if wallet:
+                current_rate = await RateService.get_current_rate(
+                    asset_id=asset_id_for_rate,
+                    wallet_id=switch.wallet,
+                    user_id=wallet.user,
+                    asset_amount=int(_switch.amount),
+                )
+                if current_rate and current_rate > 0:
+                    asset_amount_display_units = float(_switch.amount)
+                    sats_required = asset_amount_display_units * current_rate
+                    base_amount_sats = sats_required
+        except Exception as e:
+            logger.warning(f"Failed to get RFQ rate for validation: {e}")
+
+    price_msat = int(base_amount_sats * 1000)
+    variable_enabled = _switch.variable and not (
+        hasattr(_switch, "accepts_assets") and _switch.accepts_assets
+    )
+    max_sendable = price_msat * 100 if variable_enabled else price_msat
+    min_sendable = price_msat
+
+    # Validate the amount is within acceptable range
+    if amount < min_sendable or amount > max_sendable:
+        return LnurlErrorResponse(
+            reason=f"Amount {amount} msat is out of acceptable range. "
+            f"Must be between {min_sendable} and {max_sendable} msat."
+        )
+
     if not switch.disposable and not websocket_manager.has_connection(switch_id):
         return LnurlErrorResponse(reason="No active bitcoinswitch connections.")
 
