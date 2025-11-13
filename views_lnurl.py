@@ -1,6 +1,8 @@
 import json
 
 from fastapi import APIRouter, Query, Request
+from loguru import logger
+
 from lnbits.core.services import create_invoice, websocket_manager
 from lnbits.utils.exchange_rates import fiat_amount_as_satoshis
 from lnurl import (
@@ -50,6 +52,15 @@ async def lnurl_params(
     )
     # let the max be 100x the min if variable pricing is enabled
     max_sendable = price_msat * 100 if _switch.variable else price_msat
+
+    logger.info(
+        f"[BITCOINSWITCH-PARAMS] switch_id={bitcoinswitch_id}, pin={pin}, "
+        f"configured_amount={_switch.amount} {switch.currency}, "
+        f"minSendable={price_msat} msat ({price_msat/1000} sats), "
+        f"maxSendable={max_sendable} msat ({max_sendable/1000} sats), "
+        f"variable={_switch.variable}"
+    )
+
     url = request.url_for("bitcoinswitch.lnurl_cb", switch_id=bitcoinswitch_id, pin=pin)
     try:
         callback_url = parse_obj_as(CallbackUrl, str(url))
@@ -73,6 +84,11 @@ async def lnurl_callback(
     amount: int | None = Query(None),
     comment: str | None = Query(None),
 ) -> LnurlPayActionResponse | LnurlErrorResponse:
+    logger.info(
+        f"[BITCOINSWITCH-CALLBACK] Received: switch_id={switch_id}, pin={pin}, "
+        f"amount={amount} msat ({amount/1000 if amount else 0} sats)"
+    )
+
     if comment and len(comment) > 255:
         return LnurlErrorResponse(reason="Comment too long, max 255 characters.")
     if not amount:
@@ -90,11 +106,61 @@ async def lnurl_callback(
     if not websocket_manager.has_connection(switch_id):
         return LnurlErrorResponse(reason="No active bitcoinswitch connections.")
 
+    # Calculate what the expected min/max should be (for logging comparison)
+    expected_price_msat = int(
+        (
+            await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
+            if switch.currency != "sat"
+            else float(_switch.amount)
+        )
+        * 1000
+    )
+    expected_max_sendable = expected_price_msat * 100 if _switch.variable else expected_price_msat
+
+    logger.info(
+        f"[BITCOINSWITCH-CALLBACK] Expected: min={expected_price_msat} msat ({expected_price_msat/1000} sats), "
+        f"max={expected_max_sendable} msat ({expected_max_sendable/1000} sats) | "
+        f"Received: {amount} msat ({amount/1000} sats)"
+    )
+
+    # SECURITY FIX: Validate amount is within advertised constraints
+    if amount < expected_price_msat:
+        logger.warning(
+            f"[BITCOINSWITCH-SECURITY] ⚠️ REJECTED underpayment attempt! "
+            f"switch_id={switch_id}, pin={pin}, "
+            f"required_min={expected_price_msat} msat ({expected_price_msat/1000} sats), "
+            f"received={amount} msat ({amount/1000} sats), "
+            f"underpaid_by={expected_price_msat - amount} msat ({(expected_price_msat - amount)/1000} sats)"
+        )
+        return LnurlErrorResponse(
+            reason=f"Amount too low. Minimum: {int(expected_price_msat / 1000)} sats"
+        )
+
+    if amount > expected_max_sendable:
+        logger.warning(
+            f"[BITCOINSWITCH-SECURITY] ⚠️ REJECTED overpayment attempt! "
+            f"switch_id={switch_id}, pin={pin}, "
+            f"allowed_max={expected_max_sendable} msat ({expected_max_sendable/1000} sats), "
+            f"received={amount} msat ({amount/1000} sats), "
+            f"overpaid_by={amount - expected_max_sendable} msat ({(amount - expected_max_sendable)/1000} sats)"
+        )
+        return LnurlErrorResponse(
+            reason=f"Amount too high. Maximum: {int(expected_max_sendable / 1000)} sats"
+        )
+
+    logger.info(
+        f"[BITCOINSWITCH-CALLBACK] ✓ Amount validated successfully: {amount} msat ({amount/1000} sats)"
+    )
+
     memo = f"{switch.title} (pin: {pin})"
     if comment:
         memo += f" - {comment}"
 
     metadata = LnurlPayMetadata(json.dumps([["text/plain", switch.title]]))
+
+    logger.info(
+        f"[BITCOINSWITCH-CALLBACK] Creating invoice for {int(amount / 1000)} sats"
+    )
 
     payment = await create_invoice(
         wallet_id=switch.wallet,
