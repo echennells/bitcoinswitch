@@ -24,6 +24,30 @@ from .crud import create_switch_payment, get_bitcoinswitch
 bitcoinswitch_lnurl_router = APIRouter(prefix="/api/v1/lnurl")
 
 
+async def calculate_switch_price_range(switch, _switch) -> tuple[int, int]:
+    """
+    Calculate the min and max sendable amounts for a switch in millisatoshis.
+
+    Args:
+        switch: The main switch object containing currency info
+        _switch: The individual switch containing amount and variable pricing config
+
+    Returns:
+        tuple[int, int]: (min_sendable_msat, max_sendable_msat)
+    """
+    price_msat = int(
+        (
+            await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
+            if switch.currency != "sat"
+            else float(_switch.amount)
+        )
+        * 1000
+    )
+    # let the max be 100x the min if variable pricing is enabled
+    max_sendable = price_msat * 100 if _switch.variable else price_msat
+    return price_msat, max_sendable
+
+
 @bitcoinswitch_lnurl_router.get("/{bitcoinswitch_id}")
 async def lnurl_params(
     request: Request, bitcoinswitch_id: str, pin: str
@@ -42,16 +66,7 @@ async def lnurl_params(
     if not _switch:
         return LnurlErrorResponse(reason=f"Switch with pin {pin} not found.")
 
-    price_msat = int(
-        (
-            await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
-            if switch.currency != "sat"
-            else float(_switch.amount)
-        )
-        * 1000
-    )
-    # let the max be 100x the min if variable pricing is enabled
-    max_sendable = price_msat * 100 if _switch.variable else price_msat
+    price_msat, max_sendable = await calculate_switch_price_range(switch, _switch)
 
     logger.info(
         f"[BITCOINSWITCH-PARAMS] switch_id={bitcoinswitch_id}, pin={pin}, "
@@ -106,16 +121,10 @@ async def lnurl_callback(
     if not websocket_manager.has_connection(switch_id):
         return LnurlErrorResponse(reason="No active bitcoinswitch connections.")
 
-    # Calculate what the expected min/max should be (for logging comparison)
-    expected_price_msat = int(
-        (
-            await fiat_amount_as_satoshis(float(_switch.amount), switch.currency)
-            if switch.currency != "sat"
-            else float(_switch.amount)
-        )
-        * 1000
+    # Calculate what the expected min/max should be (for validation)
+    expected_price_msat, expected_max_sendable = await calculate_switch_price_range(
+        switch, _switch
     )
-    expected_max_sendable = expected_price_msat * 100 if _switch.variable else expected_price_msat
 
     logger.info(
         f"[BITCOINSWITCH-CALLBACK] Expected: min={expected_price_msat} msat ({expected_price_msat/1000} sats), "
